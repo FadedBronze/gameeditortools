@@ -4,6 +4,9 @@ import rn "base:runtime"
 import "core:strings"
 import "core:slice"
 
+GroupIndex :: distinct u32
+InputIndex :: distinct u32
+
 Toggle :: struct {
     current: ^bool,
 }
@@ -46,8 +49,8 @@ GroupType :: enum {
 Group :: struct {
     type: GroupType,
     label: string, // either the name of the component or the group
-    input: u32, // points into PanelPool.inputs
-    subgroup: []u32
+    input: InputIndex, // points into PanelPool.inputs
+    subgroup: []GroupIndex
 }
 
 InputComponentType :: enum {
@@ -159,7 +162,7 @@ create_panel_recurse_struct_fields :: proc(
     inputs: ^[dynamic]InputComponent, 
     groups: ^[dynamic]Group,
     parent: ^Group,
-    parent_idx: u32,
+    parent_idx: GroupIndex,
     name: string,
 ) {
     #partial switch info in ti.variant {
@@ -167,9 +170,9 @@ create_panel_recurse_struct_fields :: proc(
             append(groups, Group {
                 type = .Subgroup,
                 label = name,
-                subgroup = make([]u32, info.field_count),
+                subgroup = make([]GroupIndex, info.field_count),
             })
-            new_size := u32(len(groups)-1)
+            new_size := GroupIndex(len(groups)-1)
             parent.subgroup[parent_idx] = new_size
             new_parent := groups[new_size]
 
@@ -179,7 +182,7 @@ create_panel_recurse_struct_fields :: proc(
                 type := info.types[i]
                 offset := info.offsets[i]
 
-                create_panel_recurse_struct_fields(s, o + offset, parsed, type, inputs, groups, &new_parent, u32(i), info.names[i])
+                create_panel_recurse_struct_fields(s, o + offset, parsed, type, inputs, groups, &new_parent, GroupIndex(i), info.names[i])
             }
         case rn.Type_Info_Named:
             //if info.name == "EditableSlice" {
@@ -195,14 +198,14 @@ create_panel_recurse_struct_fields :: proc(
                 append(groups, Group {
                     type = .Subgroup,
                     label = name,
-                    subgroup = make([]u32, info.count),
+                    subgroup = make([]GroupIndex, info.count),
                 })
-                new_size := u32(len(groups)-1)
+                new_size := GroupIndex(len(groups)-1)
                 parent.subgroup[parent_idx] = new_size
                 new_parent := groups[new_size]
 
                 for i in 0..<info.count {
-                    create_panel_recurse_struct_fields(s, o + uintptr(info.elem_size*i), tags, info.elem, inputs, groups, &new_parent, u32(i), "")
+                    create_panel_recurse_struct_fields(s, o + uintptr(info.elem_size*i), tags, info.elem, inputs, groups, &new_parent, GroupIndex(i), "")
                 } 
             }
         case rn.Type_Info_Integer:
@@ -270,10 +273,10 @@ create_panel_recurse_struct_fields :: proc(
             
             append(groups, Group {
                 type = .Component,
-                input = u32(len(inputs)-1),
+                input = InputIndex(len(inputs)-1),
                 label = name,
             })
-            new_size := u32(len(groups)-1)
+            new_size := GroupIndex(len(groups)-1)
             parent.subgroup[parent_idx] = new_size
         case rn.Type_Info_Float:
             assert(info.endianness == .Platform)
@@ -321,10 +324,10 @@ create_panel_recurse_struct_fields :: proc(
             
             append(groups, Group {
                 type = .Component,
-                input = u32(len(inputs)-1),
+                input = InputIndex(len(inputs)-1),
                 label = name,
             })
-            new_size := u32(len(groups)-1)
+            new_size := GroupIndex(len(groups)-1)
             parent.subgroup[parent_idx] = new_size
         case rn.Type_Info_Boolean:
             type := get_value(tags, "type")
@@ -336,10 +339,10 @@ create_panel_recurse_struct_fields :: proc(
 
                 append(groups, Group {
                     type = .Component,
-                    input = u32(len(inputs)-1),
+                    input = InputIndex(len(inputs)-1),
                     label = name,
                 })
-                new_size := u32(len(groups)-1)
+                new_size := GroupIndex(len(groups)-1)
                 parent.subgroup[parent_idx] = new_size
             }
         case:
@@ -365,12 +368,12 @@ create_panel_pool :: proc() -> PanelPool {
     }
 }
 
-create_panel :: proc(p: ^PanelPool, s: ^$T, name: string) -> Group {
+create_panel :: proc(p: ^PanelPool, s: ^$T, name: string) -> GroupIndex {
     ti: ^rn.Type_Info = type_info_of(type_of(s))
     ptr: rn.Type_Info_Pointer = ti.variant.(rn.Type_Info_Pointer)
     ti = ptr.elem
 
-    buf: [1]u32 = {0}
+    buf: [1]GroupIndex = {0}
     append_elem(&p.groups, Group {
         type = .Subgroup,
         label = "root",
@@ -380,7 +383,7 @@ create_panel :: proc(p: ^PanelPool, s: ^$T, name: string) -> Group {
 
     create_panel_recurse_struct_fields(s, 0, parse_tag(""), ti, &p.inputs, &p.groups, &p.groups[groups_len-1], 0, name)
     
-    return p.groups[p.groups[groups_len-1].subgroup[0]]
+    return p.groups[groups_len-1].subgroup[0]
 }
 
 EditableText :: struct {

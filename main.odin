@@ -1,12 +1,10 @@
 package main
 import rl "vendor:raylib"
-import "core:fmt"
 import clay "clay-odin"
-import ut "utils"
 import "core:strings"
 import "base:runtime"
 import "core:slice"
-import ed "editor"
+import editorui "editorui"
 
 error_handler :: proc "c" (errorData: clay.ErrorData) {
     //fmt.println(errorData)
@@ -28,128 +26,24 @@ measure_text :: proc "c" (
     }
 }
 
-render_panel_recurse :: proc(pool: ^ed.PanelPool, panel: ^ed.Group) {
-    switch panel.type {
-        case .Subgroup:
-            if clay.UI()({ 
-                layout = { 
-                    sizing = { width = clay.SizingGrow({}), height = clay.SizingGrow({}) } ,
-                    childGap = 5,
-                    layoutDirection = .TopToBottom,
-                    padding = clay.PaddingAll(10),
-                }, 
-                backgroundColor = {0, 0, 0, 20},
-            }) {
-                clay.Text(panel.label, clay.TextElementConfig {
-                    fontSize = 32,
-                    wrapMode = .Words,
-                    textColor = {0, 0, 0, 255.0},
-                })
-
-                if clay.UI()({ 
-                    layout = { 
-                        sizing = { width = clay.SizingGrow({}), height = clay.SizingGrow({}) } ,
-                        childGap = 5,
-                        layoutDirection = .TopToBottom,
-                    }, 
-                }) {
-                    for group_index in panel.subgroup {
-                        render_panel_recurse(pool, &pool.groups[group_index])
-                    }
-                }
-            }
-        case .Component:
-            if clay.UI()({ 
-                layout = { 
-                    sizing = { width = clay.SizingPercent(1.0), height = clay.SizingFit({}) } ,
-                    childGap = 5,
-                }, 
-            }) {
-                clay.Text(panel.label, clay.TextElementConfig {
-                    fontSize = 24,
-                    wrapMode = .Words,
-                    textColor = {0, 0, 0, 255.0},
-                })
-
-                #partial switch input in pool.inputs[panel.input] {
-                case ed.Toggle:
-                    render_toggle(panel.label, input.current)
-                case ed.NumberInput(f32):
-                    switch input.type {
-                        case .Slider:
-                            render_slider(panel.label, input.current, input.min, input.max)
-                        case .Text:
-                            render_number_text_input(panel.label, input.current, input.min, input.max, input.placeholder)
-                    }
-                case:
-                }
-            }
-    }
+ExampleSubstruct :: struct {
+    button: bool "type: 'toggle'",
+    //number: i32 "placeholder: 'hi'",
+    //hidden: bool "type: 'hidden'",
+    //vec: [2]f32 "min: '0', max: '10.5'"
 }
 
-render_toggle :: proc(id: string, current: ^bool) {
-    bg_color: clay.Color = current^ ? {0, 0, 0, 255} : {0, 0, 0, 125}
-    toggle_id := clay.ID(id, 1)
-
-    if clay.UI(toggle_id)({ 
-        layout = { 
-            sizing = { width = clay.SizingFixed(20), height = clay.SizingFixed(20) } ,
-            childGap = 5,
-        }, 
-        backgroundColor = bg_color
-    }) {}
-
-    ptrdata := clay.GetPointerState()
-
-    if (clay.PointerOver(toggle_id) && ptrdata.state == .PressedThisFrame) {
-        current^ = !(current^)
-    }
+Example :: struct {
+    range: f32 "type: 'slider', min: '-1.5', max: '10'",
+    //text: EditableText "placeholder: 'value'",
+    sub: ExampleSubstruct,
 }
 
-render_number_text_input :: proc(id: string, current: ^$T, min: T, max: T, placeholder: string) {
-    unimplemented()
+AppData :: struct {
+    example: Example,
 }
 
-render_slider :: proc(id: string, current: ^$T, min: T, max: T) {
-    if clay.UI(clay.ID(id, 0))({ 
-        layout = { 
-            padding = clay.PaddingAll(16),
-            sizing = { width = clay.SizingGrow({}), height = clay.SizingGrow({}) },
-        },
-        backgroundColor = {0, 0, 0, 20},
-    }) {
-        if clay.UI(clay.ID(id, 1))({ 
-            layout = {
-                sizing = {
-                    width = clay.SizingGrow({}), 
-                    height = clay.SizingFixed(10)
-                }
-            },
-            backgroundColor = {0, 0, 0, 20},
-        }) {
-            handle_id := clay.ID(id, 2)
-
-            if clay.UI(handle_id)({ 
-                layout = {
-                    sizing = {
-                        width = clay.SizingFixed(15), 
-                        height = clay.SizingFixed(15)
-                    }
-                },
-                floating = {
-                    attachTo = .Parent,
-                    offset = {-2.5, -2.5}
-                },
-                backgroundColor = {0, 0, 0, 125},
-            }) {}
-            
-            if clay.PointerOver(id) && clay.PointerData.state.PressedThisFrame {
-            }
-        }
-    }
-}
-
-create_layout :: proc(pool: ^ed.PanelPool, panel: ^ed.Group, delta_time: f32) -> clay.ClayArray(clay.RenderCommand) {
+create_layout :: proc(wm: ^editorui.EditorUI, appdata: ^AppData, delta_time: f32) -> clay.ClayArray(clay.RenderCommand) {
     clay.BeginLayout()
 
     if clay.UI()({ 
@@ -166,16 +60,17 @@ create_layout :: proc(pool: ^ed.PanelPool, panel: ^ed.Group, delta_time: f32) ->
         }) {
             if clay.UI()({ 
                 layout = { 
-                    sizing = { width = clay.SizingPercent(0.333), height = clay.SizingGrow({}) } 
+                    sizing = { width = clay.SizingPercent(0.25), height = clay.SizingGrow({}) } 
                 }, 
                 backgroundColor = {0, 0, 0, 20},
             }) {
-                render_panel_recurse(pool, panel)
+                label := "extra thinggy thing"
+                editorui.render_structure_panel(wm, label, &appdata.example, label)
             }
 
             if clay.UI()({ 
                 layout = { 
-                    sizing = { width = clay.SizingPercent(0.333), height = clay.SizingGrow({}) } 
+                    sizing = { width = clay.SizingPercent(0.5), height = clay.SizingGrow({}) } 
                 }, 
                 backgroundColor = {0, 0, 0, 20},
             }) {
@@ -183,7 +78,7 @@ create_layout :: proc(pool: ^ed.PanelPool, panel: ^ed.Group, delta_time: f32) ->
 
             if clay.UI()({ 
                 layout = { 
-                    sizing = { width = clay.SizingPercent(0.333), height = clay.SizingGrow({}) } 
+                    sizing = { width = clay.SizingPercent(0.25), height = clay.SizingGrow({}) } 
                 }, 
                 backgroundColor = {0, 0, 0, 20},
             }) {
@@ -246,30 +141,18 @@ main :: proc() {
     rl.InitWindow(1080, 720, "yay")
     rl.SetWindowState({.WINDOW_RESIZABLE})
     
-    ExampleSubstruct :: struct {
-        button: bool "type: 'toggle'",
-        //number: i32 "placeholder: 'hi'",
-        //hidden: bool "type: 'hidden'",
-        //vec: [2]f32 "min: '0', max: '10.5'"
-    }
+    editor_ui := editorui.create_editorui()
 
-    Example :: struct {
-        range: f32 "type: 'slider', min: '-1.5', max: '10'",
-        //text: EditableText "placeholder: 'value'",
-        sub: ExampleSubstruct,
+    appdata := AppData {
+        example = Example {
+            range = 5,
+            //sub = ExampleSubstruct {
+            //    button = false,
+            //    number = 0,
+            //    vec = {0.2, 1}
+            //}
+        }
     }
-
-    ex := Example {
-        range = 5,
-        //sub = ExampleSubstruct {
-        //    button = false,
-        //    number = 0,
-        //    vec = {0.2, 1}
-        //}
-    }
-    
-    panel_pool := ed.create_panel_pool()
-    panel := ed.create_panel(&panel_pool, &ex, "ex epic thinggy dinggy")
 
     for !rl.WindowShouldClose() {
         mouse_position := rl.GetMousePosition()
@@ -277,7 +160,7 @@ main :: proc() {
         clay.SetPointerState(mouse_position, mouse_down)
         clay.SetLayoutDimensions({auto_cast rl.GetScreenWidth(), auto_cast rl.GetScreenHeight()})
 
-        elements := create_layout(&panel_pool, &panel, rl.GetFrameTime())
+        elements := create_layout(&editor_ui, &appdata, rl.GetFrameTime())
 
         rl.BeginDrawing()
         rl.ClearBackground(rl.WHITE)
