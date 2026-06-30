@@ -1,8 +1,7 @@
 package editor
 import "core:fmt"
 import rn "base:runtime"
-import "core:strings"
-import "core:slice"
+import "core:mem"
 
 GroupIndex :: distinct u32
 InputIndex :: distinct u32
@@ -24,15 +23,20 @@ NumberInput :: struct(T: typeid) {
     max: T,
 }
 
-TextInput :: struct {
+TextInputString :: struct {
     placeholder: string,
-    text: []u8,
-    text_len: ^int,
+    text: ^string,
+}
+
+TextInputMutableBuffer :: struct {
+    placeholder: string,
+    text: EditableText,
 }
 
 InputComponent :: union {
     Toggle,
-    TextInput,
+    TextInputString,
+    TextInputMutableBuffer,
     NumberInput(f32),
     NumberInput(f64),
     NumberInput(u32),
@@ -61,103 +65,68 @@ InputComponentType :: enum {
     NumberInput,
 }
 
-ParsedKVs :: struct {
-    keys: []string,
-    values: []string,
+TagFlags :: bit_set[enum {
+    Min,
+    Max,
+    Placeholder,
+    Slider,
+    Toggle,
+    Length,
+    Text,
+}]
+
+ParsedTag :: struct {
+    flags: TagFlags,
+    min: f64,
+    max: f64,
+    placeholder: string,
+    length: string,
 }
 
-parse_tag :: proc(tag: string) -> ParsedKVs { 
-    if tag == "" {
-        return ParsedKVs {
-            keys = slice.from_ptr(cast(^string)nil, 0), 
-            values = slice.from_ptr(cast(^string)nil, 0),
-        }
-    }
-    
-    keys := make([dynamic]string)
-    values := make([dynamic]string)
-
-    //type: 'slider', min: '-1.5', max: '10'
-
-    start := 0
-    end := 0
-    for {
-        for {
-            end += 1
-            assert(end < len(tag))
-            if tag[end] == ':' {
-                append(&keys, strings.trim(tag[start:end], " "))
-                start = end+1
-                end = start
-                break
-            }
-        }
-        
-        start_tag: u8 = '\x00'
-
-        for {
-            end += 1
-            assert(end < len(tag))
-            if tag[end] == '\'' || tag[end] == '"' {
-                start_tag = tag[end]
-                start = end+1
-                end = start
-                break;
-            }
-        }
-
-        for {
-            end += 1
-            assert(end < len(tag))
-            if tag[end] == start_tag {
-                append(&values, strings.trim(tag[start:end], " "))
-                start = end
-                end = start
-                break;
-            }
-        }
-        
-        fully_ended := false
-        
-        for {
-            if tag[end] == ',' {
-                start = end+1
-                end = start
-                break;
-            }
-            end += 1
-            if end >= len(tag) {
-                fully_ended = true
-                break;
-            }
-        }
-
-        if (fully_ended) {
-            break
-        }
-    }
-
-    return ParsedKVs {
-        keys = keys[0:len(keys)], 
-        values = values[0:len(values)],
-    }
-}
-
-get_value :: proc(tags: ParsedKVs, key: string) -> string {
-    for i in 0..<len(tags.keys) {
-        if tags.keys[i] == key {
-            return tags.values[i]
-        }
-    }
-    return ""
-}
-
+import "core:strings"
 import "core:strconv"
+
+parse_tag :: proc(tag: string) -> ParsedTag {
+    it := tag
+    res: ParsedTag
+    for str in strings.split_iterator(&it, " ") {
+        if strings.contains(str, "max") {
+            res.flags += {.Max}
+            ok: bool
+            res.max, ok = strconv.parse_f64(str[3+1:len(str)-1])
+            assert(ok)
+        }
+        if strings.contains(str, "min") {
+            res.flags += {.Min}
+            ok: bool
+            res.max, ok = strconv.parse_f64(str[3+1:len(str)-1])
+            assert(ok)
+        }
+        if strings.contains(str, "placeholder") {
+            res.flags += {.Placeholder}
+            res.placeholder = str[11+1:len(str)-1]
+        }
+        if strings.contains(str, "slider") {
+            res.flags += {.Slider}
+        }
+        if strings.contains(str, "text") {
+            res.flags += {.Text}
+        }
+        if strings.contains(str, "toggle") {
+            res.flags += {.Toggle}
+        }
+        if strings.contains(str, "length") {
+            res.flags += {.Length}
+            res.length = str[6+1:len(str)-1]
+        }
+    }
+    return res
+}
 
 create_panel_recurse_struct_fields :: proc(
     s: rawptr,
     o: uintptr,
-    tags: ParsedKVs,
+    tag: ParsedTag,
     ti: ^rn.Type_Info, 
     inputs: ^[dynamic]InputComponent, 
     groups: ^[dynamic]Group,
@@ -177,8 +146,8 @@ create_panel_recurse_struct_fields :: proc(
             new_parent := groups[new_size]
 
             for i in 0..<info.field_count {
-                tag := info.tags[i]
-                parsed := parse_tag(tag)
+                tags := info.tags[i]
+                parsed := parse_tag(tags)
                 type := info.types[i]
                 offset := info.offsets[i]
 
@@ -190,80 +159,59 @@ create_panel_recurse_struct_fields :: proc(
             //} else if info.name == "EditableText" {
             //    unimplemented()
             //} else {
-                create_panel_recurse_struct_fields(s, o, tags, info.base, inputs, groups, parent, parent_idx, name)
+                create_panel_recurse_struct_fields(s, o, tag, info.base, inputs, groups, parent, parent_idx, name)
             //}
         case rn.Type_Info_Array:
-            type := get_value(tags, "type")
-            if type != "hidden" {
-                append(groups, Group {
-                    type = .Subgroup,
-                    label = name,
-                    subgroup = make([]GroupIndex, info.count),
-                })
-                new_size := GroupIndex(len(groups)-1)
-                parent.subgroup[parent_idx] = new_size
-                new_parent := groups[new_size]
+            append(groups, Group {
+                type = .Subgroup,
+                label = name,
+                subgroup = make([]GroupIndex, info.count),
+            })
+            new_size := GroupIndex(len(groups)-1)
+            parent.subgroup[parent_idx] = new_size
+            new_parent := groups[new_size]
 
-                for i in 0..<info.count {
-                    create_panel_recurse_struct_fields(s, o + uintptr(info.elem_size*i), tags, info.elem, inputs, groups, &new_parent, GroupIndex(i), "")
-                } 
-            }
+            for i in 0..<info.count {
+                create_panel_recurse_struct_fields(s, o + uintptr(info.elem_size*i), tag, info.elem, inputs, groups, &new_parent, GroupIndex(i), "")
+            } 
         case rn.Type_Info_Integer:
             assert(info.endianness == .Platform)
             
-            type := get_value(tags, "type")
-            if type == "hidden" {
-                // nothing
-            } else {
-                // default type 'text'
-                real_type: NumberInputType = type == "slider" ? .Slider : .Text
-                placeholder := get_value(tags, "placeholder")
-
-                mini := get_value(tags, "min")
-                if mini == "" {
-                    mini = "0"
-                }
-                maxi := get_value(tags, "max")
-                if maxi == "" {
-                    maxi = "0"
-                }
-                
-                min_int, ok := strconv.parse_u64(mini, nil)
-                assert(ok)
-                max_int, _ok := strconv.parse_u64(maxi, nil)
-                assert(_ok)
+            if .Text in tag.flags || .Slider in tag.flags {
+                assert(!(.Text in tag.flags && .Slider in tag.flags))
+                real_type: NumberInputType = .Slider in tag.flags ? .Slider : .Text
 
                 switch {
                 case ti.size == 1:
                     append(inputs, NumberInput(u8) {
                         type = real_type,
-                        placeholder = placeholder,
-                        min = u8(min_int),
-                        max = max_int == 0 ? max(u8) : u8(max_int),
+                        placeholder = tag.placeholder,
+                        min = u8(tag.min),
+                        max = tag.max == 0 ? max(u8) : u8(tag.max),
                         current = cast(^u8)(cast(uintptr)s+o)
                     })
                 case ti.size == 4 && !info.signed:
                     append(inputs, NumberInput(u32) {
                         type = real_type,
-                        placeholder = placeholder,
-                        min = u32(min_int),
-                        max = max_int == 0 ? max(u32) : u32(max_int),
+                        placeholder = tag.placeholder,
+                        min = u32(tag.min),
+                        max = tag.min == 0 ? max(u32) : u32(tag.max),
                         current = cast(^u32)(cast(uintptr)s+o)
                     })
                 case ti.size == 4 && info.signed:
                     append(inputs, NumberInput(i32) {
                         type = real_type,
-                        placeholder = placeholder,
-                        min = i32(min_int),
-                        max = max_int == 0 ? max(i32) : i32(max_int),
+                        placeholder = tag.placeholder,
+                        min = i32(tag.min),
+                        max = tag.max == 0 ? max(i32) : i32(tag.max),
                         current = cast(^i32)(cast(uintptr)s+o)
                     })
                 case ti.size == 8 && !info.signed:
                     append(inputs, NumberInput(u64) {
                         type = real_type,
-                        placeholder = placeholder,
-                        min = u64(min_int),
-                        max = max_int == 0 ? max(u64) : u64(max_int),
+                        placeholder = tag.placeholder,
+                        min = u64(tag.min),
+                        max = tag.max == 0 ? max(u64) : u64(tag.max),
                         current = cast(^u64)(cast(uintptr)s+o)
                     })
                 case:
@@ -281,40 +229,25 @@ create_panel_recurse_struct_fields :: proc(
         case rn.Type_Info_Float:
             assert(info.endianness == .Platform)
             
-            type := get_value(tags, "type")
-            if type == "hidden" {
-                // nothing
-            } else {
-                // default type 'text'
-                real_type: NumberInputType = type == "slider" ? .Slider : .Text
-                placeholder := get_value(tags, "placeholder")
-
-                min := get_value(tags, "min")
-                if min == "" {
-                    min = "0"
-                }
-                max := get_value(tags, "max")
-
-                min_int, ok := strconv.parse_f64(min, nil)
-                assert(ok)
-                max_int, _ok := strconv.parse_f64(max, nil)
-                assert(_ok)
+            if .Text in tag.flags || .Slider in tag.flags {
+                assert(!(.Text in tag.flags && .Slider in tag.flags))
+                real_type: NumberInputType = .Slider in tag.flags ? .Slider : .Text
 
                 switch {
                 case ti.size == 4:
                     append(inputs, NumberInput(f32) {
                         type = real_type,
-                        placeholder = placeholder,
-                        min = f32(min_int),
-                        max = f32(max_int),
+                        placeholder = tag.placeholder,
+                        min = f32(tag.min),
+                        max = f32(tag.max),
                         current = cast(^f32)(cast(uintptr)s+o)
                     })
                 case ti.size == 8:
                     append(inputs, NumberInput(f64) {
                         type = real_type,
-                        placeholder = placeholder,
-                        min = f64(min_int),
-                        max = f64(max_int),
+                        placeholder = tag.placeholder,
+                        min = f64(tag.min),
+                        max = f64(tag.max),
                         current = cast(^f64)(cast(uintptr)s+o)
                     })
                 case:
@@ -330,9 +263,7 @@ create_panel_recurse_struct_fields :: proc(
             new_size := GroupIndex(len(groups)-1)
             parent.subgroup[parent_idx] = new_size
         case rn.Type_Info_Boolean:
-            type := get_value(tags, "type")
-
-            if type != "hidden" {
+            if .Toggle in tag.flags {
                 append(inputs, Toggle {
                     current = cast(^bool)(cast(uintptr)s+o)
                 })
@@ -345,6 +276,19 @@ create_panel_recurse_struct_fields :: proc(
                 new_size := GroupIndex(len(groups)-1)
                 parent.subgroup[parent_idx] = new_size
             }
+        case rn.Type_Info_String:
+            append(inputs, TextInputString {
+                placeholder = tag.placeholder,
+                text = cast(^string)(cast(uintptr)s+o),
+            })
+
+            append(groups, Group {
+                type = .Component,
+                input = InputIndex(len(inputs)-1),
+                label = name,
+            })
+            new_size := GroupIndex(len(groups)-1)
+            parent.subgroup[parent_idx] = new_size
         case:
             unimplemented()
     }
@@ -355,9 +299,9 @@ PanelPool :: struct {
     groups: [dynamic]Group
 }
 
-create_panel_pool :: proc() -> PanelPool {
-    inputs := make([dynamic]InputComponent)
-    groups := make([dynamic]Group)
+create_panel_pool :: proc(allocator: mem.Allocator) -> PanelPool {
+    inputs := make([dynamic]InputComponent, allocator)
+    groups := make([dynamic]Group, allocator)
 
     reserve(&inputs, 10000)
     reserve(&groups, 10000)
@@ -383,7 +327,7 @@ create_panel :: proc(p: ^PanelPool, s: ^$T, name: string) -> GroupIndex {
 
     create_panel_recurse_struct_fields(s, 0, parse_tag(""), ti, &p.inputs, &p.groups, &p.groups[groups_len-1], 0, name)
 
-    fmt.println(p)
+    //fmt.println(p)
     
     return p.groups[groups_len-1].subgroup[0]
 }
@@ -400,32 +344,36 @@ EditableSlice :: struct($T: typeid) {
 
 main :: proc() {
     ExampleSubstruct :: struct {
-        button: bool "type: 'toggle'",
-        number: i32 "placeholder: 'hi'",
-        hidden: bool "type: 'hidden'",
-        vec: [2]f32 "min: '0', max: '10.5'"
+        button: bool "toggle",
+        number: i32 "text placeholder(hi)",
+        hidden: bool,
+        vec: [2]f32 "text min(0) max(10.5)"
     }
 
     Example :: struct {
-        range: f32 "type: 'slider', min: '-1.5', max: '10'",
-        //text: EditableText "placeholder: 'value'",
+        range: f32 "slider min(-1.5) max(10)",
+        text: string "text placeholder(name)",
         sub: ExampleSubstruct,
     }
 
     ex := Example {
         range = 5,
+        text = "hello",
         sub = ExampleSubstruct {
             button = false,
             number = 0,
             vec = {0.2, 1}
         }
     }
-    p := create_panel_pool()
-    panel := create_panel(&p, &ex, "ex")
-    //panel2 := create_panel(&p, &ex, "ex")
-    for group, i in p.groups {
-        fmt.println(group, i)
-    }
+
+    //fmt.println(parse_tag("slider min(-1.5) max(10)"))
+
+    p := create_panel_pool(context.allocator)
+    //panel := create_panel(&p, &ex, "ex")
+    panel2 := create_panel(&p, &ex, "ex")
+    //for group, i in p.groups {
+    //    fmt.println(group, i)
+    //}
     for input, i in p.inputs {
         fmt.println(input, i)
     }

@@ -1,9 +1,15 @@
 package editorui
 import ed "project:editor"
+import "project:editorui"
 import clay "project:clay-odin"
 import ut "project:utils"
+import "core:mem"
+import te "stbtextedit"
 
-TextInput :: struct {}
+TextInputString :: struct {
+    buf: []u8,
+    buf_len: u8,
+}
 
 NumberTextInput :: struct {}
 
@@ -12,7 +18,7 @@ Slider :: struct {}
 ActiveWidgetData :: union {
     Slider,
     NumberTextInput,
-    TextInput,
+    TextInputString,
 }
 
 EditorUITheme :: struct {
@@ -28,12 +34,45 @@ EditorUI :: struct {
     active_index: ed.InputIndex,
     panel_pool: ed.PanelPool,
     panels: map[string]ed.GroupIndex,
+    layout_fn: LayoutFunction,
+    render_fn: RenderFunction,
 }
 
-create_editorui :: proc(theme: EditorUITheme) -> EditorUI {
+error_handler :: proc "c" (errorData: clay.ErrorData) {
+    //fmt.println(errorData)
+}
+
+RenderFunction :: proc(^EditorUI, rawptr)
+
+LayoutFunction :: proc (
+    editor_ui: ^EditorUI, 
+    appdata: rawptr, 
+    delta_time: f32,
+) -> clay.ClayArray(clay.RenderCommand)
+
+MeasureTextFunction :: proc "c" (text: clay.StringSlice, config: ^clay.TextElementConfig, userData: rawptr) -> clay.Dimensions
+
+initialize_fn_ptrs :: proc(
+    editor_ui: ^EditorUI,
+    measure_text: MeasureTextFunction,
+    layout_fn: LayoutFunction,
+    render_fn: RenderFunction,
+) {
+    editor_ui.layout_fn = layout_fn
+    editor_ui.render_fn = render_fn
+    clay.SetMeasureTextFunction(measure_text, nil)
+}
+
+create_editorui :: proc(theme: EditorUITheme, allocator: mem.Allocator) -> EditorUI {
+    min_memory_size := clay.MinMemorySize()
+    memory := make([^]u8, min_memory_size, allocator)
+    arena: clay.Arena = clay.CreateArenaWithCapacityAndMemory(uint(min_memory_size), memory)
+
+    clay.Initialize(arena, {1080, 720}, { handler = error_handler })
+
     return EditorUI {
-        panel_pool = ed.create_panel_pool(),
-        panels = make(map[string]ed.GroupIndex),
+        panel_pool = ed.create_panel_pool(allocator),
+        panels = make(map[string]ed.GroupIndex, allocator),
         active_index = max(ed.InputIndex),
         theme = theme,
     }
@@ -106,7 +145,9 @@ custom_component :: proc(editor_ui: ^EditorUI, id: string, widget: ed.InputIndex
     switch v in editor_ui.panel_pool.inputs[widget] {
     case ed.Toggle:
         sizing = { width = size, height = size }
-    case ed.TextInput:
+    case ed.TextInputMutableBuffer:
+        sizing = { width = clay.SizingGrow({}), height = size }
+    case ed.TextInputString:
         sizing = { width = clay.SizingGrow({}), height = size }
     case ed.NumberInput(f32), ed.NumberInput(u32), ed.NumberInput(u64), ed.NumberInput(f64), ed.NumberInput(i32), ed.NumberInput(u8):
         sizing = { width = clay.SizingGrow({}), height = clay.SizingFixed(f32(editor_ui.theme.font_size)*1.75+2) }
@@ -120,4 +161,8 @@ custom_component :: proc(editor_ui: ^EditorUI, id: string, widget: ed.InputIndex
         },
         custom = {customData = cast(rawptr)(cast(uintptr)widget+1)}
     }) {}
+}
+
+run :: proc(editorui: ^EditorUI, data: ^$T) {
+    editorui.render_fn(editorui, data)
 }
