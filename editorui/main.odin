@@ -1,6 +1,7 @@
 package editorui
 import ed "project:editor"
 import clay "project:clay-odin"
+import ut "project:utils"
 
 TextInput :: struct {}
 
@@ -14,17 +15,27 @@ ActiveWidgetData :: union {
     TextInput,
 }
 
+EditorUITheme :: struct {
+    font_size: u8,
+    text_color: ut.Color,
+    background_color: ut.Color,
+    highlight_color: ut.Color,
+}
+
 EditorUI :: struct {
+    theme: EditorUITheme,
     active_data: ActiveWidgetData,
-    active_id: clay.ElementId,
+    active_index: ed.InputIndex,
     panel_pool: ed.PanelPool,
     panels: map[string]ed.GroupIndex,
 }
 
-create_editorui :: proc() -> EditorUI {
+create_editorui :: proc(theme: EditorUITheme) -> EditorUI {
     return EditorUI {
         panel_pool = ed.create_panel_pool(),
         panels = make(map[string]ed.GroupIndex),
+        active_index = max(ed.InputIndex),
+        theme = theme,
     }
 }
 
@@ -51,7 +62,7 @@ render_panel_recurse :: proc(editor_ui: ^EditorUI, panel: ^ed.Group) {
                 backgroundColor = {0, 0, 0, 20},
             }) {
                 clay.Text(panel.label, clay.TextElementConfig {
-                    fontSize = 24,
+                    fontSize = u16(editor_ui.theme.font_size)*5/4,
                     wrapMode = .Words,
                     textColor = {0, 0, 0, 255.0},
                 })
@@ -76,63 +87,37 @@ render_panel_recurse :: proc(editor_ui: ^EditorUI, panel: ^ed.Group) {
                 }, 
             }) {
                 clay.Text(panel.label, clay.TextElementConfig {
-                    fontSize = 18,
+                    fontSize = u16(editor_ui.theme.font_size),
                     wrapMode = .Words,
                     textColor = {0, 0, 0, 255.0},
                 })
 
-                #partial switch input in editor_ui.panel_pool.inputs[panel.input] {
-                case ed.Toggle:
-                    render_toggle(panel.label, input.current)
-                case ed.NumberInput(f32):
-                    switch input.type {
-                        case .Slider:
-                            render_slider(panel.label, input.current, input.min, input.max)
-                        case .Text:
-                            render_number_text_input(panel.label, input.current, input.min, input.max, input.placeholder)
-                    }
-                case:
-                }
+                custom_component(editor_ui, panel.label, panel.input)
             }
     }
 }
 
-render_toggle :: proc(id: string, current: ^bool) {
-    bg_color: clay.Color = current^ ? {0, 0, 0, 255} : {0, 0, 0, 125}
-    toggle_id := clay.ID(id, 1)
+custom_component :: proc(editor_ui: ^EditorUI, id: string, widget: ed.InputIndex) {
+    widget_id := clay.ID(id, 0)
+    sizing: clay.Sizing
+    
+    size := clay.SizingFixed(f32(editor_ui.theme.font_size))
 
-    if clay.UI(toggle_id)({ 
-        layout = { 
-            sizing = { width = clay.SizingFixed(20), height = clay.SizingFixed(20) } ,
-            childGap = 5,
-        }, 
-        backgroundColor = bg_color
-    }) {}
-
-    ptrdata := clay.GetPointerState()
-
-    if (clay.PointerOver(toggle_id) && ptrdata.state == .PressedThisFrame) {
-        current^ = !(current^)
+    switch v in editor_ui.panel_pool.inputs[widget] {
+    case ed.Toggle:
+        sizing = { width = size, height = size }
+    case ed.TextInput:
+        sizing = { width = clay.SizingGrow({}), height = size }
+    case ed.NumberInput(f32), ed.NumberInput(u32), ed.NumberInput(u64), ed.NumberInput(f64), ed.NumberInput(i32), ed.NumberInput(u8):
+        sizing = { width = clay.SizingGrow({}), height = clay.SizingFixed(f32(editor_ui.theme.font_size)*1.75+2) }
     }
-}
 
-render_number_text_input :: proc(id: string, current: ^$T, min: T, max: T, placeholder: string) {
-    unimplemented()
-}
-
-render_slider :: proc(id: string, current: ^$T, min: T, max: T) {
-    slider_id := clay.ID(id, 0)
-    if clay.UI(slider_id)({ 
+    if clay.UI(widget_id)({ 
         layout = { 
-            sizing = { width = clay.SizingGrow({}), height = clay.SizingGrow({}) },
+            sizing = sizing,
             layoutDirection = .TopToBottom,
             padding = clay.Padding { 0, 0, 0, 0 },
         },
-        backgroundColor = {0, 0, 0, 20},
+        custom = {customData = cast(rawptr)(cast(uintptr)widget+1)}
     }) {}
-
-    data := clay.GetElementData(slider_id)
-    if data.found {
-        data.boundingBox
-    }
 }

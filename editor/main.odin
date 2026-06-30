@@ -382,6 +382,8 @@ create_panel :: proc(p: ^PanelPool, s: ^$T, name: string) -> GroupIndex {
     groups_len := len(p.groups)
 
     create_panel_recurse_struct_fields(s, 0, parse_tag(""), ti, &p.inputs, &p.groups, &p.groups[groups_len-1], 0, name)
+
+    fmt.println(p)
     
     return p.groups[groups_len-1].subgroup[0]
 }

@@ -46,3 +46,16 @@ blend_colors :: proc(colors: []Color, t: f32) -> Color {
 
     return blend_two_colors(colors[colorIdxDown], colors[colorIdxUp], t)
 }
+
+Bounds :: struct(T: typeid) {
+    x: T,
+    y: T,
+    width: T,
+    height: T,
+}
+
+position_within_bounds :: proc(position: [2]$T, bounds: Bounds(T)) -> bool {
+    within_x := bounds.x < position.x && bounds.x + bounds.width > position.x
+    within_y := bounds.y < position.y && bounds.y + bounds.height > position.y
+    return within_x && within_y
+}
