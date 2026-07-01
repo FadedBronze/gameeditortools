@@ -5,7 +5,7 @@ import clay "project:clay-odin"
 import ut "project:utils"
 import "core:mem"
 
-TextInputString :: struct {
+TextInput :: struct {
     buf: []u8,
     buf_len: u8,
 }
@@ -16,8 +16,7 @@ Slider :: struct {}
 
 ActiveWidgetData :: union {
     Slider,
-    NumberTextInput,
-    TextInputString,
+    TextInput,
 }
 
 EditorUITheme :: struct {
@@ -141,6 +140,16 @@ custom_component :: proc(editor_ui: ^EditorUI, id: string, widget: ed.InputIndex
     
     size := clay.SizingFixed(f32(editor_ui.theme.font_size))
 
+    number_input_sizing :: proc(editor_ui: ^EditorUI, number_input: ed.NumberInput($T)) -> clay.Sizing {
+        switch number_input.type {
+        case .Slider:
+            return { width = clay.SizingGrow({}), height = clay.SizingFixed(f32(editor_ui.theme.font_size)*1.75+2) }
+        case .Text:
+            return { width = clay.SizingGrow({}), height = clay.SizingFixed(f32(editor_ui.theme.font_size)) }
+        }
+        unreachable()
+    }
+
     switch v in editor_ui.panel_pool.inputs[widget] {
     case ed.Toggle:
         sizing = { width = size, height = size }
@@ -148,8 +157,18 @@ custom_component :: proc(editor_ui: ^EditorUI, id: string, widget: ed.InputIndex
         sizing = { width = clay.SizingGrow({}), height = size }
     case ed.TextInputString:
         sizing = { width = clay.SizingGrow({}), height = size }
-    case ed.NumberInput(f32), ed.NumberInput(u32), ed.NumberInput(u64), ed.NumberInput(f64), ed.NumberInput(i32), ed.NumberInput(u8):
-        sizing = { width = clay.SizingGrow({}), height = clay.SizingFixed(f32(editor_ui.theme.font_size)*1.75+2) }
+    case ed.NumberInput(f32):
+        sizing = number_input_sizing(editor_ui, v)
+    case ed.NumberInput(u32):
+        sizing = number_input_sizing(editor_ui, v)
+    case ed.NumberInput(u64):
+        sizing = number_input_sizing(editor_ui, v)
+    case ed.NumberInput(f64):
+        sizing = number_input_sizing(editor_ui, v)
+    case ed.NumberInput(i32):
+        sizing = number_input_sizing(editor_ui, v)
+    case ed.NumberInput(u8):
+        sizing = number_input_sizing(editor_ui, v)
     }
 
     if clay.UI(widget_id)({ 

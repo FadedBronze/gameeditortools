@@ -114,21 +114,35 @@ render_custom_widget :: proc(editor_ui: ^editorui.EditorUI, render_command: clay
             rl.DrawRectangleRec(auto_cast render_command.boundingBox, auto_cast widget_color)
         }
     case ed.TextInputString:
-        render_text_input(editor_ui, render_command, input_data, input_index, text_render_info, allocator, frame_allocator)
+        render_text_input(
+            editor_ui, 
+            render_command, 
+            input_data.placeholder, 
+            input_data.text == nil ? "" : input_data.text^, 
+            cast(rawptr)input_data.text, 
+            proc(str: rawptr, new_str: string) {
+                old_string: ^string = cast(^string)str
+                old_string^ = new_str
+            }, 
+            input_index, 
+            text_render_info, 
+            allocator, 
+            frame_allocator
+        )
     case ed.TextInputMutableBuffer:
         //input_data.
     case ed.NumberInput(f64):
-        render_number_input(editor_ui, render_command, input_data, input_index, slider_render_info)
+        render_number_input(editor_ui, render_command, input_data, input_index, slider_render_info, text_render_info, allocator, frame_allocator)
     case ed.NumberInput(i32):
-        render_number_input(editor_ui, render_command, input_data, input_index, slider_render_info)
+        render_number_input(editor_ui, render_command, input_data, input_index, slider_render_info, text_render_info, allocator, frame_allocator)
     case ed.NumberInput(u8):
-        render_number_input(editor_ui, render_command, input_data, input_index, slider_render_info)
+        render_number_input(editor_ui, render_command, input_data, input_index, slider_render_info, text_render_info, allocator, frame_allocator)
     case ed.NumberInput(f32):
-        render_number_input(editor_ui, render_command, input_data, input_index, slider_render_info)
+        render_number_input(editor_ui, render_command, input_data, input_index, slider_render_info, text_render_info, allocator, frame_allocator)
     case ed.NumberInput(u64):
-        render_number_input(editor_ui, render_command, input_data, input_index, slider_render_info)
+        render_number_input(editor_ui, render_command, input_data, input_index, slider_render_info, text_render_info, allocator, frame_allocator)
     case ed.NumberInput(u32):
-        render_number_input(editor_ui, render_command, input_data, input_index, slider_render_info)
+        render_number_input(editor_ui, render_command, input_data, input_index, slider_render_info, text_render_info, allocator, frame_allocator)
     }
 }
 
@@ -143,10 +157,20 @@ TextInputRenderInfo :: struct {
     text_color: ut.Color,
 }
 
+TextInputType :: union {
+    ed.TextInputString,
+    ed.NumberInput,
+}
+
 render_text_input :: proc(
     editor_ui: ^editorui.EditorUI,
     render_command: clay.RenderCommand, 
-    text_input: ed.TextInputString, 
+
+    placeholder: string,
+    text: string,
+    commit_user_ptr: rawptr,
+    commit: proc (rawptr, string),
+
     input_index: ed.InputIndex,
     render_info: TextInputRenderInfo,
     allocator: mem.Allocator,
@@ -163,12 +187,12 @@ render_text_input :: proc(
 
     if mouse_within && rl.IsMouseButtonPressed(.LEFT) {
         // TODO: decide how this gets freed properly
-        active_data := editorui.TextInputString {
+        active_data := editorui.TextInput{
             buf = make([]u8, 32),
             buf_len = 1,
         }
 
-        prev_str := text_input.text == nil ? "" : text_input.text^
+        prev_str := text
 
         copy_from_string(active_data.buf, prev_str)
         active_data.buf_len = u8(len(prev_str))
@@ -187,7 +211,7 @@ render_text_input :: proc(
     // - proper caret position
     // - undo/(redo??)
     if active {
-        active_data := &editor_ui.active_data.(editorui.TextInputString)
+        active_data := &editor_ui.active_data.(editorui.TextInput)
         ctrl := rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL)
 
         if !ctrl {
@@ -235,26 +259,26 @@ render_text_input :: proc(
 
     if (rl.IsKeyPressed(.ESCAPE) || rl.IsMouseButtonPressed(.LEFT) && !mouse_within) && active {
         editor_ui.active_index = max(ed.InputIndex)
-        active_data := &editor_ui.active_data.(editorui.TextInputString)
-        text_input.text^ = string(active_data.buf[0:active_data.buf_len])
+        active_data := &editor_ui.active_data.(editorui.TextInput)
+        commit(commit_user_ptr, string(active_data.buf[0:active_data.buf_len]))
     }
     
-    empty := text_input.text == nil || text_input.text^ == ""
+    empty := text == ""
     render_string: cstring
     text_color: ut.Color
 
     if active {
-        active_data := editor_ui.active_data.(editorui.TextInputString)
+        active_data := editor_ui.active_data.(editorui.TextInput)
 
         text_cstring := strings.clone_to_cstring(string(active_data.buf[:active_data.buf_len]), frame_allocator)
         render_string = text_cstring
         text_color = render_info.text_color
     } else if empty {
-        placeholder := strings.clone_to_cstring(text_input.placeholder, frame_allocator)
+        placeholder := strings.clone_to_cstring(placeholder, frame_allocator)
         render_string = placeholder
         text_color = render_info.placeholder_text_color
     } else {
-        text_cstring := strings.clone_to_cstring(text_input.text^, frame_allocator)
+        text_cstring := strings.clone_to_cstring(text, frame_allocator)
         render_string = text_cstring
         text_color = render_info.text_color
     }
@@ -297,10 +321,51 @@ render_number_input :: proc(
     number_input: ed.NumberInput($T), 
     input_index: ed.InputIndex,
     render_info: SliderRenderInfo,
+    text_render_info: TextInputRenderInfo,
+    allocator: mem.Allocator,
+    frame_allocator: mem.Allocator,
 ) {
     handle_size := f32(render_info.handle_size)
     bar_padding_x := f32(render_info.bar_padding_x)
     bar_height := f32(render_info.bar_height)
+
+    fmt_number :: proc(buf: []u8, num: $T) -> cstring {
+        type_info := type_info_of(T)
+
+        #partial switch v in type_info.variant {
+        case runtime.Type_Info_Float:
+            buf_len := len(strconv.write_float(buf[:], cast(f64)num, 'f', 2, 64))
+            buf[buf_len] = '\x00'
+            buf_len += 1
+            return strings.unsafe_string_to_cstring(string(buf[0:buf_len]))
+        case runtime.Type_Info_Integer:
+            buf_len := len(strconv.write_int(buf[:], i64(num), 10))
+            buf[buf_len] = '\x00'
+            buf_len += 1
+            return strings.unsafe_string_to_cstring(string(buf[0:buf_len]))
+        case:
+            assert(false, message = "fmt_number requires number")
+        }
+
+        unreachable()
+    }
+
+    parse_number :: proc($T: typeid, numstr: string) -> (T, bool) {
+        type_info := type_info_of(T)
+
+        #partial switch v in type_info.variant {
+        case runtime.Type_Info_Float:
+            val, ok := strconv.parse_f64(numstr)
+            return T(val), ok
+        case runtime.Type_Info_Integer:
+            val, ok := strconv.parse_i64(numstr)
+            return T(val), ok
+        case:
+            assert(false, message = "parse_number requires number")
+        }
+
+        unreachable()
+    }
 
     switch number_input.type {
         case .Slider:
@@ -349,10 +414,7 @@ render_number_input :: proc(
             }, auto_cast render_info.handle_color)
              
             min_text_buf: [16]u8
-            min_text_len := len(strconv.write_float(min_text_buf[:], f64(number_input.min), 'f', 2, 64))
-            min_text_buf[min_text_len] = '\x00'
-            min_text_len += 1
-            min_text_cstring := strings.unsafe_string_to_cstring(string(min_text_buf[0:min_text_len]))
+            min_text_cstring := fmt_number(min_text_buf[:], number_input.min)
             
             shrunk_font_size: i32 = auto_cast (render_info.font_size*3)/4
 
@@ -369,10 +431,7 @@ render_number_input :: proc(
             )
 
             max_text_buf: [16]u8
-            max_text_len := len(strconv.write_float(max_text_buf[:], f64(number_input.max), 'f', 2, 64))
-            max_text_buf[max_text_len] = '\x00'
-            max_text_len += 1
-            max_text_cstring := strings.unsafe_string_to_cstring(string(max_text_buf[0:max_text_len]))
+            max_text_cstring := fmt_number(max_text_buf[:], number_input.max)
             
             max_text_width := rl.MeasureText(max_text_cstring, shrunk_font_size)
 
@@ -389,10 +448,7 @@ render_number_input :: proc(
             current := ((range * mouse_ratio_x)+f32(number_input.min))
             
             text_buf: [16]u8
-            text_len := len(strconv.write_float(text_buf[:], f64(current), 'f', 2, 64))
-            text_buf[text_len] = '\x00'
-            text_len += 1
-            text_cstring := strings.unsafe_string_to_cstring(string(text_buf[0:text_len]))
+            text_cstring := fmt_number(text_buf[:], T(current))
             
             text_width := rl.MeasureText(text_cstring, shrunk_font_size)
 
@@ -406,6 +462,33 @@ render_number_input :: proc(
                 auto_cast render_info.handle_color
             )
         case .Text:
+            buf: [32]u8
+            str := fmt_number(buf[:], number_input.current^)
+            
+            render_text_input(
+                editor_ui, 
+                render_command, 
+                number_input.placeholder,
+                string(str),
+                cast(rawptr)number_input.current,
+                proc(ptr: rawptr, new_string: string) {
+                    parse_str := new_string
+                    if new_string[len(new_string)-1] == '\x00' {
+                        parse_str = new_string[:len(new_string)-1]
+                    }
+
+                    current := cast(^T)ptr
+                    val, ok := parse_number(T, parse_str)
+
+                    if ok {
+                        current^ = val
+                    }
+                },
+                input_index,
+                text_render_info,
+                allocator,
+                frame_allocator,
+            )
     }
 }
 
