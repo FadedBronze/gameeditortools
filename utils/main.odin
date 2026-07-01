@@ -16,6 +16,20 @@ concatenate :: proc(buf: []u8, strs: ..string) -> string {
     return transmute(string)buf[0:offset]
 }
 
+get_contrasting_color :: proc(col: Color) -> Color {
+    if col.r/3 + col.g/3 + col.b/3 > 255/2 {
+        return BLACK
+    } else {
+        return WHITE
+    }
+}
+
+change_opacity :: proc(col: Color, a: u8) -> Color {
+    col := col
+    col.a = a
+    return col
+} 
+
 blend_two_colors :: proc(b: Color, a: Color, t: f32) -> Color {
     rr := (f32(a.r) - f32(b.r)) * t + f32(b.r)
     gg := (f32(a.g) - f32(b.g)) * t + f32(b.g)

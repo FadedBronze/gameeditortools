@@ -4,6 +4,7 @@ import "project:editorui"
 import clay "project:clay-odin"
 import ut "project:utils"
 import "core:mem"
+import "core:fmt"
 
 TextInput :: struct {
     buf: []u8,
@@ -20,10 +21,10 @@ ActiveWidgetData :: union {
 }
 
 EditorUITheme :: struct {
-    font_size: u8,
-    text_color: ut.Color,
-    background_color: ut.Color,
-    highlight_color: ut.Color,
+    font_size: u8 "slider min(10) max(30)",
+    text_color: ut.Color "slider",
+    background_color: ut.Color "slider",
+    highlight_color: ut.Color "slider",
 }
 
 EditorUI :: struct {
@@ -34,6 +35,15 @@ EditorUI :: struct {
     panels: map[string]ed.GroupIndex,
     layout_fn: LayoutFunction,
     render_fn: RenderFunction,
+}
+
+color_to_clay_color :: proc(color: ut.Color) -> clay.Color {
+    return {
+        f32(color.r),
+        f32(color.g),
+        f32(color.b),
+        f32(color.a),
+    }
 }
 
 error_handler :: proc "c" (errorData: clay.ErrorData) {
@@ -96,12 +106,12 @@ render_panel_recurse :: proc(editor_ui: ^EditorUI, panel: ^ed.Group) {
                     layoutDirection = .TopToBottom,
                     padding = clay.PaddingAll(10),
                 }, 
-                backgroundColor = {0, 0, 0, 20},
+                backgroundColor = color_to_clay_color(ut.change_opacity(ut.get_contrasting_color(editor_ui.theme.background_color), 20)),
             }) {
                 clay.Text(panel.label, clay.TextElementConfig {
                     fontSize = u16(editor_ui.theme.font_size)*5/4,
                     wrapMode = .Words,
-                    textColor = {0, 0, 0, 255.0},
+                    textColor = color_to_clay_color(editor_ui.theme.text_color),
                 })
 
                 if clay.UI()({ 
@@ -112,7 +122,9 @@ render_panel_recurse :: proc(editor_ui: ^EditorUI, panel: ^ed.Group) {
                     }, 
                 }) {
                     for group_index in panel.subgroup {
-                        render_panel_recurse(editor_ui, &editor_ui.panel_pool.groups[group_index])
+                        if group_index != 0 {
+                            render_panel_recurse(editor_ui, &editor_ui.panel_pool.groups[group_index])
+                        }
                     }
                 }
             }
@@ -126,7 +138,7 @@ render_panel_recurse :: proc(editor_ui: ^EditorUI, panel: ^ed.Group) {
                 clay.Text(panel.label, clay.TextElementConfig {
                     fontSize = u16(editor_ui.theme.font_size),
                     wrapMode = .Words,
-                    textColor = {0, 0, 0, 255.0},
+                    textColor = color_to_clay_color(editor_ui.theme.text_color),
                 })
 
                 custom_component(editor_ui, panel.label, panel.input)

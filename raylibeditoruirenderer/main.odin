@@ -506,7 +506,7 @@ render_editor : editorui.RenderFunction = proc(
         clay.SetLayoutDimensions({auto_cast rl.GetScreenWidth(), auto_cast rl.GetScreenHeight()})
 
         rl.BeginDrawing()
-        rl.ClearBackground(rl.WHITE)
+        rl.ClearBackground(auto_cast editor_ui.theme.background_color)
         clay_raylib_render(editor_ui, editor_ui.layout_fn(editor_ui, userdata, rl.GetFrameTime()), context.allocator, context.temp_allocator)
         rl.EndDrawing()
     }

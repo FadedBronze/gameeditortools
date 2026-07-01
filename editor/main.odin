@@ -2,6 +2,7 @@ package editor
 import "core:fmt"
 import rn "base:runtime"
 import "core:mem"
+import ut "project:utils"
 
 GroupIndex :: distinct u32
 InputIndex :: distinct u32
@@ -72,6 +73,7 @@ TagFlags :: bit_set[enum {
     Slider,
     Toggle,
     Length,
+    Empty,
     Text,
 }]
 
@@ -89,6 +91,10 @@ import "core:strconv"
 parse_tag :: proc(tag: string) -> ParsedTag {
     it := tag
     res: ParsedTag
+    if tag == "" {
+        res.flags += {.Empty}
+        return res
+    }
     for str in strings.split_iterator(&it, " ") {
         if strings.contains(str, "max") {
             res.flags += {.Max}
@@ -153,13 +159,20 @@ create_panel_recurse_struct_fields :: proc(
 
                 create_panel_recurse_struct_fields(s, o + offset, parsed, type, inputs, groups, &new_parent, GroupIndex(i), info.names[i])
             }
+        case rn.Type_Info_Pointer:
+            ptr_ptr := cast(^rawptr)(cast(uintptr)s+o)
+            if .Empty not_in tag.flags && ptr_ptr^ != nil {
+                create_panel_recurse_struct_fields(ptr_ptr^, 0, tag, info.elem, inputs, groups, parent, parent_idx, name)
+            }
         case rn.Type_Info_Named:
+            if .Empty not_in tag.flags {
+                create_panel_recurse_struct_fields(s, o, tag, info.base, inputs, groups, parent, parent_idx, name)
+            }
             //if info.name == "EditableSlice" {
             //    unimplemented()
             //} else if info.name == "EditableText" {
             //    unimplemented()
             //} else {
-                create_panel_recurse_struct_fields(s, o, tag, info.base, inputs, groups, parent, parent_idx, name)
             //}
         case rn.Type_Info_Array:
             append(groups, Group {
@@ -318,18 +331,20 @@ create_panel :: proc(p: ^PanelPool, s: ^$T, name: string) -> GroupIndex {
     ti = ptr.elem
 
     buf: [1]GroupIndex = {0}
-    append_elem(&p.groups, Group {
+    false_root := Group {
         type = .Subgroup,
         label = "root",
-        subgroup = buf[:],
-    })
+        subgroup = buf[:1],
+    }
     groups_len := len(p.groups)
 
-    create_panel_recurse_struct_fields(s, 0, parse_tag(""), ti, &p.inputs, &p.groups, &p.groups[groups_len-1], 0, name)
+    tag := ParsedTag {}
+    create_panel_recurse_struct_fields(s, 0, tag, ti, &p.inputs, &p.groups, &false_root, 0, name)
 
-    //fmt.println(p)
+    //fmt.println(p.groups)
+    //fmt.println(p.inputs)
     
-    return p.groups[groups_len-1].subgroup[0]
+    return false_root.subgroup[0]
 }
 
 EditableText :: struct {
@@ -349,21 +364,37 @@ main :: proc() {
         hidden: bool,
         vec: [2]f32 "text min(0) max(10.5)"
     }
+    
+    EditorUITheme :: struct {
+        font_size: u8 "text",
+        text_color: ut.Color,
+        background_color: ut.Color,
+        highlight_color: ut.Color,
+    }
 
     Example :: struct {
         range: f32 "slider min(-1.5) max(10)",
         text: string "text placeholder(name)",
-        sub: ExampleSubstruct,
+        //sub: ExampleSubstruct,
+        theme: ^EditorUITheme,
+    }
+
+    theme := EditorUITheme{
+        font_size = 16,
+        background_color = ut.WHITE,
+        text_color = ut.BLACK,
+        highlight_color = ut.Color {255, 0, 0, 255}
     }
 
     ex := Example {
         range = 5,
         text = "hello",
-        sub = ExampleSubstruct {
-            button = false,
-            number = 0,
-            vec = {0.2, 1}
-        }
+        theme = &theme,
+        //sub = ExampleSubstruct {
+        //    button = false,
+        //    number = 0,
+        //    vec = {0.2, 1}
+        //}
     }
 
     //fmt.println(parse_tag("slider min(-1.5) max(10)"))
@@ -371,9 +402,9 @@ main :: proc() {
     p := create_panel_pool(context.allocator)
     //panel := create_panel(&p, &ex, "ex")
     panel2 := create_panel(&p, &ex, "ex")
-    //for group, i in p.groups {
-    //    fmt.println(group, i)
-    //}
+    for group, i in p.groups {
+        fmt.println(group, i)
+    }
     for input, i in p.inputs {
         fmt.println(input, i)
     }

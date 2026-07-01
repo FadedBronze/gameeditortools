@@ -6,14 +6,18 @@ import editorui "editorui"
 import rn "raylibeditoruirenderer"
 import ut "utils"
 
+import "core:fmt"
 import "base:runtime"
 
 create_layout :: proc(
-    wm: ^editorui.EditorUI, 
+    editor_ui: ^editorui.EditorUI, 
     appdata: ^AppData, 
     delta_time: f32,
 ) -> clay.ClayArray(clay.RenderCommand) {
     clay.BeginLayout()
+
+    bg := ut.change_opacity(ut.get_contrasting_color(editor_ui.theme.background_color), 20)
+    fmt.println(bg)
 
     if clay.UI()({ 
         layout = { 
@@ -31,17 +35,17 @@ create_layout :: proc(
                 layout = { 
                     sizing = { width = clay.SizingPercent(0.25), height = clay.SizingGrow({}) } 
                 }, 
-                backgroundColor = {0, 0, 0, 20},
+                backgroundColor = editorui.color_to_clay_color(bg),
             }) {
                 label := "extra thinggy thing"
-                editorui.render_structure_panel(wm, label, &appdata.example, label)
+                editorui.render_structure_panel(editor_ui, label, &appdata.example, label)
             }
 
             if clay.UI()({ 
                 layout = { 
                     sizing = { width = clay.SizingPercent(0.5), height = clay.SizingGrow({}) } 
                 }, 
-                backgroundColor = {0, 0, 0, 20},
+                backgroundColor = editorui.color_to_clay_color(bg),
             }) {
             }
 
@@ -49,8 +53,10 @@ create_layout :: proc(
                 layout = { 
                     sizing = { width = clay.SizingPercent(0.25), height = clay.SizingGrow({}) } 
                 }, 
-                backgroundColor = {0, 0, 0, 20},
+                backgroundColor = editorui.color_to_clay_color(bg),
             }) {
+                label := "theme"
+                editorui.render_structure_panel(editor_ui, label, &editor_ui.theme, label)
             }
         }
     }
@@ -61,14 +67,15 @@ create_layout :: proc(
 ExampleSubstruct :: struct {
     button: bool "toggle",
     //number: i32 "text placeholder(hi)",
-    //hidden: bool,
+    hidden: bool,
     //vec: [2]f32 "text min(0) max(10.5)"
 }
 
 Example :: struct {
-    range: f32 "text min(-1.5) max(10.5)",
+    yuh: i32 "text min(0) max(100)",
+    range: f32 "slider min(-1.5) max(10.5)",
     text: string "text placeholder(name)",
-    sub: ExampleSubstruct,
+    sub: ExampleSubstruct "group",
 }
 
 AppData :: struct {
@@ -78,8 +85,8 @@ AppData :: struct {
 main :: proc() { 
     editor_ui: editorui.EditorUI = editorui.create_editorui(editorui.EditorUITheme {
         font_size = 16,
-        text_color = ut.BLACK,
-        background_color = ut.WHITE,
+        text_color = ut.WHITE,
+        background_color = ut.BLACK,
         highlight_color = ut.Color {255, 0, 0, 255}
     }, context.allocator)
     
