@@ -169,6 +169,7 @@ custom_component :: proc(editor_ui: ^EditorUI, id: string, widget: ed.InputIndex
         sizing = { width = clay.SizingGrow({}), height = size }
     case ed.TextInputString:
         sizing = { width = clay.SizingGrow({}), height = size }
+
     case ed.NumberInput(f32):
         sizing = number_input_sizing(editor_ui, v)
     case ed.NumberInput(u32):
@@ -181,6 +182,15 @@ custom_component :: proc(editor_ui: ^EditorUI, id: string, widget: ed.InputIndex
         sizing = number_input_sizing(editor_ui, v)
     case ed.NumberInput(u8):
         sizing = number_input_sizing(editor_ui, v)
+
+    case ed.Dropdown(u8):
+        sizing = { width = clay.SizingGrow({}), height = size }
+    case ed.Dropdown(u16):
+        sizing = { width = clay.SizingGrow({}), height = size }
+    case ed.Dropdown(u32):
+        sizing = { width = clay.SizingGrow({}), height = size }
+    case ed.Dropdown(u64):
+        sizing = { width = clay.SizingGrow({}), height = size }
     }
 
     if clay.UI(widget_id)({ 

@@ -17,7 +17,6 @@ create_layout :: proc(
     clay.BeginLayout()
 
     bg := ut.change_opacity(ut.get_contrasting_color(editor_ui.theme.background_color), 20)
-    fmt.println(bg)
 
     if clay.UI()({ 
         layout = { 
@@ -75,11 +74,19 @@ Example :: struct {
     yuh: i32 "text min(0) max(100)",
     range: f32 "slider min(-1.5) max(10.5)",
     text: string "text placeholder(name)",
+    element: Element "dropdown",
     sub: ExampleSubstruct "group",
 }
 
 AppData :: struct {
     example: Example,
+}
+
+Element :: enum {
+    Fire,
+    Water,
+    Earth,
+    Air,
 }
 
 main :: proc() { 
@@ -103,7 +110,8 @@ main :: proc() {
                 button = false,
                 //number = 0,
                 //vec = {0.2, 1}
-            }
+            },
+            element = .Earth,
         }
     }    
 

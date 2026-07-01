@@ -1,7 +1,8 @@
 package editor
+
 import "core:fmt"
-import rn "base:runtime"
 import "core:mem"
+import rn "base:runtime"
 import ut "project:utils"
 
 GroupIndex :: distinct u32
@@ -34,10 +35,20 @@ TextInputMutableBuffer :: struct {
     text: EditableText,
 }
 
+Dropdown :: struct(T: typeid) {
+    enum_names: []string,
+    enum_values: []rn.Type_Info_Enum_Value,
+    current: ^T,
+}
+
 InputComponent :: union {
     Toggle,
     TextInputString,
     TextInputMutableBuffer,
+    Dropdown(u8),
+    Dropdown(u16),
+    Dropdown(u32),
+    Dropdown(u64),
     NumberInput(f32),
     NumberInput(f64),
     NumberInput(u32),
@@ -75,6 +86,7 @@ TagFlags :: bit_set[enum {
     Length,
     Empty,
     Text,
+    Dropdown,
 }]
 
 ParsedTag :: struct {
@@ -120,6 +132,9 @@ parse_tag :: proc(tag: string) -> ParsedTag {
         }
         if strings.contains(str, "toggle") {
             res.flags += {.Toggle}
+        }
+        if strings.contains(str, "dropdown") {
+            res.flags += {.Dropdown}
         }
         if strings.contains(str, "length") {
             res.flags += {.Length}
@@ -275,6 +290,53 @@ create_panel_recurse_struct_fields :: proc(
             })
             new_size := GroupIndex(len(groups)-1)
             parent.subgroup[parent_idx] = new_size
+        case rn.Type_Info_Enum:
+            if .Dropdown in tag.flags {
+                #partial switch v in info.base.variant {
+                case rn.Type_Info_Integer:
+                    mapping_types: [2]typeid = {u8, u16}
+                    mapping_sizes: []int = {1, 2}
+
+                    switch info.base.size {
+                    case 1:
+                        append(inputs, Dropdown(u8) {
+                            current = cast(^u8)(cast(uintptr)s+o),
+                            enum_names = info.names,
+                            enum_values = info.values,
+                        })
+                    case 2:
+                        append(inputs, Dropdown(u8) {
+                            current = cast(^u8)(cast(uintptr)s+o),
+                            enum_names = info.names,
+                            enum_values = info.values,
+                        })
+                    case 4:
+                        append(inputs, Dropdown(u32) {
+                            current = cast(^u32)(cast(uintptr)s+o),
+                            enum_names = info.names,
+                            enum_values = info.values,
+                        })
+                    case 8:
+                        append(inputs, Dropdown(u64) {
+                            current = cast(^u64)(cast(uintptr)s+o),
+                            enum_names = info.names,
+                            enum_values = info.values,
+                        })
+                    case:
+                        unimplemented()
+                    }
+
+                    append(groups, Group {
+                        type = .Component,
+                        input = InputIndex(len(inputs)-1),
+                        label = name,
+                    })
+                    new_size := GroupIndex(len(groups)-1)
+                    parent.subgroup[parent_idx] = new_size
+                case:
+                    assert(false, "only supports integer backing type for enums")
+                }
+            }
         case rn.Type_Info_Boolean:
             if .Toggle in tag.flags {
                 append(inputs, Toggle {
@@ -357,6 +419,12 @@ EditableSlice :: struct($T: typeid) {
     length: u32,
 }
 
+ExampleDropdown :: enum {
+    Fire,
+    Water,
+    Earth,
+}
+
 main :: proc() {
     ExampleSubstruct :: struct {
         button: bool "toggle",
@@ -375,8 +443,9 @@ main :: proc() {
     Example :: struct {
         range: f32 "slider min(-1.5) max(10)",
         text: string "text placeholder(name)",
+        uni: ExampleDropdown "dropdown",
         //sub: ExampleSubstruct,
-        theme: ^EditorUITheme,
+        //theme: ^EditorUITheme,
     }
 
     theme := EditorUITheme{
@@ -389,7 +458,7 @@ main :: proc() {
     ex := Example {
         range = 5,
         text = "hello",
-        theme = &theme,
+        //theme = &theme,
         //sub = ExampleSubstruct {
         //    button = false,
         //    number = 0,
