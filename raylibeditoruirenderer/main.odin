@@ -96,6 +96,7 @@ render_custom_widget :: proc(editor_ui: ^editorui.EditorUI, render_command: clay
         font_size = editor_ui.theme.font_size,
         border_color = widget_color_dark,
         caret_color = editor_ui.theme.highlight_color,
+        caret_width = 1,
         text_color = editor_ui.theme.text_color,
         placeholder_text_color = widget_color_placeholder,
         padding = 3,
@@ -142,38 +143,6 @@ TextInputRenderInfo :: struct {
     text_color: ut.Color,
 }
 
-
-//raylib_key_to_char :: proc(key: rl.KeyboardKey, shift: bool) -> u8 {
-//    key_int := i32(key)
-//    switch key_int {
-//    case 65..<26+65:
-//        return u8(shift ? key_int : (key_int-65+97))
-//    case 44..<49:
-//        return u8(key_int)
-//    case 49..=57:
-//        if shift {
-//            switch key {
-//                case .ONE:
-//                    return '!'
-//                case .TWO:
-//                    return '@'
-//                case .THREE:
-//                    return '#'
-//                case .FOUR:
-//                    return '$'
-//                case .FIVE:
-//                    return 
-//            }
-//        }
-//        return key_int
-//    case 32, 91, 92, 93:
-//        return u8(key_int)
-//    case:
-//        return 0
-//    }
-//    rl.GetCharPressed()
-//}
-
 render_text_input :: proc(
     editor_ui: ^editorui.EditorUI,
     render_command: clay.RenderCommand, 
@@ -198,26 +167,76 @@ render_text_input :: proc(
             buf = make([]u8, 32),
             buf_len = 1,
         }
-        active_data.buf[0] = '\x00'
+
+        prev_str := text_input.text == nil ? "" : text_input.text^
+
+        copy_from_string(active_data.buf, prev_str)
+        active_data.buf_len = u8(len(prev_str))
+
+        if active_data.buf_len == 0 || active_data.buf[active_data.buf_len-1] != '\x00' {
+            active_data.buf[active_data.buf_len] = '\x00'
+            active_data.buf_len += 1
+        }
+
         editor_ui.active_data = active_data
         editor_ui.active_index = input_index
     }
 
+    //TODOs: 
+    // - retrigger delete on backspace hold
+    // - proper caret position
+    // - undo/(redo??)
     if active {
-        key_pressed := rl.GetKeyPressed()
-        for key_pressed != rl.KeyboardKey.KEY_NULL {
-            active_data := &editor_ui.active_data.(editorui.TextInputString)
+        active_data := &editor_ui.active_data.(editorui.TextInputString)
+        ctrl := rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL)
 
-            //active_data.buf[active_data.buf_len-1] = raylib_key_to_char(key_pressed, rl.IsKeyDown(.LEFT_SHIFT)||rl.IsKeyDown(.RIGHT_SHIFT))
-            active_data.buf_len += 1
-            active_data.buf[active_data.buf_len-1] = '\x00'
+        if !ctrl {
+            char := u8(rl.GetCharPressed())
 
-            key_pressed = rl.GetKeyPressed()
+            for char != 0 && active_data.buf_len < u8(len(active_data.buf)-1){
+                active_data.buf[active_data.buf_len-1] = char
+                active_data.buf_len += 1
+                active_data.buf[active_data.buf_len-1] = '\x00'
+
+                char = u8(rl.GetCharPressed())
+            }
+        }
+
+        key := rl.GetKeyPressed()
+
+        for key != rl.KeyboardKey.KEY_NULL {
+            #partial switch key {
+            case .BACKSPACE:
+                if ctrl {
+                    i := active_data.buf_len-1
+                    for active_data.buf[i] != ' ' && i != 0 {
+                        i -= 1
+                    }
+                    active_data.buf_len = i+1
+                    active_data.buf[active_data.buf_len-1] = '\x00'
+                } else {
+                    if active_data.buf_len > 1 {
+                        active_data.buf_len -= 1
+                        active_data.buf[active_data.buf_len-1] = '\x00'
+                    }
+                }
+            case .V:
+                if ctrl {
+                    clipboard_string := string(rl.GetClipboardText())
+                    copy_from_string(active_data.buf[active_data.buf_len-1:], clipboard_string)
+                    active_data.buf_len += u8(len(clipboard_string))
+                    active_data.buf[active_data.buf_len-1] = '\x00'
+                }
+            }
+            
+            key = rl.GetKeyPressed()
         }
     }
 
     if (rl.IsKeyPressed(.ESCAPE) || rl.IsMouseButtonPressed(.LEFT) && !mouse_within) && active {
         editor_ui.active_index = max(ed.InputIndex)
+        active_data := &editor_ui.active_data.(editorui.TextInputString)
+        text_input.text^ = string(active_data.buf[0:active_data.buf_len])
     }
     
     empty := text_input.text == nil || text_input.text^ == ""
@@ -238,6 +257,18 @@ render_text_input :: proc(
         text_cstring := strings.clone_to_cstring(text_input.text^, frame_allocator)
         render_string = text_cstring
         text_color = render_info.text_color
+    }
+    
+    text_width := rl.MeasureText(render_string, i32(render_info.font_size))
+
+    if active {
+        rl.DrawRectangle(
+            i32(padding+render_command.boundingBox.x)+text_width, 
+            i32(render_command.boundingBox.y+padding), 
+            i32(render_info.caret_width),
+            i32(render_command.boundingBox.height-padding*2),
+            auto_cast render_info.caret_color,
+        )
     }
 
     rl.DrawText(
@@ -346,7 +377,7 @@ render_number_input :: proc(
             max_text_width := rl.MeasureText(max_text_cstring, shrunk_font_size)
 
             max_text_x := f32(render_command.boundingBox.x+render_command.boundingBox.width-f32(bar_padding_x)-f32(max_text_width))
-            
+ 
             rl.DrawText(
                 max_text_cstring, 
                 auto_cast max_text_x, 

@@ -4,7 +4,6 @@ import "project:editorui"
 import clay "project:clay-odin"
 import ut "project:utils"
 import "core:mem"
-import te "stbtextedit"
 
 TextInputString :: struct {
     buf: []u8,
