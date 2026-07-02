@@ -69,8 +69,7 @@ Group :: struct {
     subgroup: []GroupIndex
 }
 
-InputComponentType :: enum {
-    Toggle,
+InputComponentType :: enum { Toggle,
     Slider,
     TextInputBuffer,
     TextInputLength,

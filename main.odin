@@ -92,8 +92,8 @@ Element :: enum {
 main :: proc() { 
     editor_ui: editorui.EditorUI = editorui.create_editorui(editorui.EditorUITheme {
         font_size = 16,
-        text_color = ut.WHITE,
-        background_color = ut.BLACK,
+        text_color = ut.BLACK,
+        background_color = ut.WHITE,
         highlight_color = ut.Color {255, 0, 0, 255}
     }, context.allocator)
     

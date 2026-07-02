@@ -31,6 +31,7 @@ EditorUI :: struct {
     theme: EditorUITheme,
     active_data: ActiveWidgetData,
     active_index: ed.InputIndex,
+
     panel_pool: ed.PanelPool,
     panels: map[string]ed.GroupIndex,
     layout_fn: LayoutFunction,
