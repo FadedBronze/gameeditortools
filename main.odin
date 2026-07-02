@@ -66,13 +66,13 @@ create_layout :: proc(
 ExampleSubstruct :: struct {
     button: bool "toggle",
     //number: i32 "text placeholder(hi)",
+    range: f32 "slider min(-1.5) max(10.5)",
     hidden: bool,
     //vec: [2]f32 "text min(0) max(10.5)"
 }
 
 Example :: struct {
     yuh: i32 "text min(0) max(100)",
-    range: f32 "slider min(-1.5) max(10.5)",
     text: string "text placeholder(name)",
     element: Element "dropdown",
     sub: ExampleSubstruct "group",
@@ -105,8 +105,8 @@ main :: proc() {
 
     appdata := AppData {
         example = Example {
-            range = 4,
             sub = ExampleSubstruct {
+            range = 4,
                 button = false,
                 //number = 0,
                 //vec = {0.2, 1}

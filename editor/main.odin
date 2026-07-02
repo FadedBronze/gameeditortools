@@ -2,6 +2,7 @@ package editor
 
 import "core:fmt"
 import "core:mem"
+import "core:slice"
 import rn "base:runtime"
 import ut "project:utils"
 
@@ -148,12 +149,14 @@ create_panel_recurse_struct_fields :: proc(
     o: uintptr,
     tag: ParsedTag,
     ti: ^rn.Type_Info, 
-    inputs: ^[dynamic]InputComponent, 
-    groups: ^[dynamic]Group,
+    panel_pool: ^PanelPool,
     parent: ^Group,
     parent_idx: GroupIndex,
     name: string,
 ) {
+    inputs := &panel_pool.inputs
+    groups := &panel_pool.groups
+
     #partial switch info in ti.variant {
         case rn.Type_Info_Struct:
             append(groups, Group {
@@ -171,16 +174,16 @@ create_panel_recurse_struct_fields :: proc(
                 type := info.types[i]
                 offset := info.offsets[i]
 
-                create_panel_recurse_struct_fields(s, o + offset, parsed, type, inputs, groups, &new_parent, GroupIndex(i), info.names[i])
+                create_panel_recurse_struct_fields(s, o + offset, parsed, type, panel_pool, &new_parent, GroupIndex(i), info.names[i])
             }
         case rn.Type_Info_Pointer:
             ptr_ptr := cast(^rawptr)(cast(uintptr)s+o)
             if .Empty not_in tag.flags && ptr_ptr^ != nil {
-                create_panel_recurse_struct_fields(ptr_ptr^, 0, tag, info.elem, inputs, groups, parent, parent_idx, name)
+                create_panel_recurse_struct_fields(ptr_ptr^, 0, tag, info.elem, panel_pool, parent, parent_idx, name)
             }
         case rn.Type_Info_Named:
             if .Empty not_in tag.flags {
-                create_panel_recurse_struct_fields(s, o, tag, info.base, inputs, groups, parent, parent_idx, name)
+                create_panel_recurse_struct_fields(s, o, tag, info.base, panel_pool, parent, parent_idx, name)
             }
             //if info.name == "EditableSlice" {
             //    unimplemented()
@@ -199,7 +202,19 @@ create_panel_recurse_struct_fields :: proc(
             new_parent := groups[new_size]
 
             for i in 0..<info.count {
-                create_panel_recurse_struct_fields(s, o + uintptr(info.elem_size*i), tag, info.elem, inputs, groups, &new_parent, GroupIndex(i), "")
+                buf: [32]u8
+
+                start := "__"
+                copy_from_string(buf[0:len(start)], start)
+                copy_from_string(buf[len(start):len(start)+8], name)
+                middle := "_element_"
+                copy_from_string(buf[len(start)+8:len(start)+8+len(middle)], middle)
+                strconv.write_int(buf[len(start)+8+len(middle):], auto_cast i, 10)
+                
+                append(&panel_pool.labels_buffer, buf)
+                last := cast(^u8)&panel_pool.labels_buffer[len(panel_pool.labels_buffer)-1]
+
+                create_panel_recurse_struct_fields(s, o + uintptr(info.elem_size*i), tag, info.elem, panel_pool, &new_parent, GroupIndex(i), string(slice.from_ptr(last, 32)))
             } 
         case rn.Type_Info_Integer:
             assert(info.endianness == .Platform)
@@ -370,19 +385,23 @@ create_panel_recurse_struct_fields :: proc(
 
 PanelPool :: struct {
     inputs: [dynamic]InputComponent,
-    groups: [dynamic]Group
+    groups: [dynamic]Group,
+    labels_buffer: [dynamic][32]u8,
 }
 
 create_panel_pool :: proc(allocator: mem.Allocator) -> PanelPool {
     inputs := make([dynamic]InputComponent, allocator)
     groups := make([dynamic]Group, allocator)
+    labels_buffer := make([dynamic][32]u8, allocator)
 
     reserve(&inputs, 10000)
     reserve(&groups, 10000)
+    reserve(&labels_buffer, 10000)
 
     return PanelPool {
         inputs = inputs, 
-        groups = groups
+        groups = groups,
+        labels_buffer = labels_buffer,
     }
 }
 
@@ -400,7 +419,7 @@ create_panel :: proc(p: ^PanelPool, s: ^$T, name: string) -> GroupIndex {
     groups_len := len(p.groups)
 
     tag := ParsedTag {}
-    create_panel_recurse_struct_fields(s, 0, tag, ti, &p.inputs, &p.groups, &false_root, 0, name)
+    create_panel_recurse_struct_fields(s, 0, tag, ti, p, &false_root, 0, name)
 
     //fmt.println(p.groups)
     //fmt.println(p.inputs)
@@ -434,17 +453,17 @@ main :: proc() {
     
     EditorUITheme :: struct {
         font_size: u8 "text",
-        text_color: ut.Color,
-        background_color: ut.Color,
-        highlight_color: ut.Color,
+        text_color: ut.Color "slider",
+        background_color: ut.Color "slider",
+        highlight_color: ut.Color "slider",
     }
 
     Example :: struct {
-        range: f32 "slider min(-1.5) max(10)",
-        text: string "text placeholder(name)",
-        uni: ExampleDropdown "dropdown",
+        //range: f32 "slider min(-1.5) max(10)",
+        //text: string "text placeholder(name)",
+        //uni: ExampleDropdown "dropdown",
         //sub: ExampleSubstruct,
-        //theme: ^EditorUITheme,
+        theme: EditorUITheme "group",
     }
 
     theme := EditorUITheme{
@@ -455,9 +474,9 @@ main :: proc() {
     }
 
     ex := Example {
-        range = 5,
-        text = "hello",
-        //theme = &theme,
+        //range = 5,
+        //text = "hello",
+        theme = theme,
         //sub = ExampleSubstruct {
         //    button = false,
         //    number = 0,

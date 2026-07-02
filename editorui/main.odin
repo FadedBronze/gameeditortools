@@ -1,8 +1,11 @@
 package editorui
-import ed "project:editor"
-import "project:editorui"
+
+import ed   "project:editor"
 import clay "project:clay-odin"
-import ut "project:utils"
+import ut   "project:utils"
+import      "project:editorui"
+
+import "core:strings"
 import "core:mem"
 import "core:fmt"
 
@@ -109,11 +112,13 @@ render_panel_recurse :: proc(editor_ui: ^EditorUI, panel: ^ed.Group) {
                 }, 
                 backgroundColor = color_to_clay_color(ut.change_opacity(ut.get_contrasting_color(editor_ui.theme.background_color), 20)),
             }) {
-                clay.Text(panel.label, clay.TextElementConfig {
-                    fontSize = u16(editor_ui.theme.font_size)*5/4,
-                    wrapMode = .Words,
-                    textColor = color_to_clay_color(editor_ui.theme.text_color),
-                })
+                if !strings.has_prefix(panel.label, "__") {
+                    clay.Text(panel.label, clay.TextElementConfig {
+                        fontSize = u16(editor_ui.theme.font_size)*5/4,
+                        wrapMode = .Words,
+                        textColor = color_to_clay_color(editor_ui.theme.text_color),
+                    })
+                }
 
                 if clay.UI()({ 
                     layout = { 
@@ -136,22 +141,25 @@ render_panel_recurse :: proc(editor_ui: ^EditorUI, panel: ^ed.Group) {
                     childGap = 5,
                 }, 
             }) {
-                clay.Text(panel.label, clay.TextElementConfig {
-                    fontSize = u16(editor_ui.theme.font_size),
-                    wrapMode = .Words,
-                    textColor = color_to_clay_color(editor_ui.theme.text_color),
-                })
+                if !strings.has_prefix(panel.label, "__") {
+                    clay.Text(panel.label, clay.TextElementConfig {
+                        fontSize = u16(editor_ui.theme.font_size),
+                        wrapMode = .Words,
+                        textColor = color_to_clay_color(editor_ui.theme.text_color),
+                    })
+                }
 
+                //fmt.println(panel.label)
                 custom_component(editor_ui, panel.label, panel.input)
             }
     }
 }
 
 custom_component :: proc(editor_ui: ^EditorUI, id: string, widget: ed.InputIndex) {
-    widget_id := clay.ID(id, 0)
     sizing: clay.Sizing
     
     size := clay.SizingFixed(f32(editor_ui.theme.font_size))
+    z_index: i16 = 1
 
     number_input_sizing :: proc(editor_ui: ^EditorUI, number_input: ed.NumberInput($T)) -> clay.Sizing {
         switch number_input.type {
@@ -186,22 +194,42 @@ custom_component :: proc(editor_ui: ^EditorUI, id: string, widget: ed.InputIndex
 
     case ed.Dropdown(u8):
         sizing = { width = clay.SizingGrow({}), height = size }
+        z_index += 1
     case ed.Dropdown(u16):
         sizing = { width = clay.SizingGrow({}), height = size }
+        z_index += 1
     case ed.Dropdown(u32):
         sizing = { width = clay.SizingGrow({}), height = size }
+        z_index += 1
     case ed.Dropdown(u64):
         sizing = { width = clay.SizingGrow({}), height = size }
+        z_index += 1
     }
+    
+    widget_id := clay.ID(id, 0)
+    floating_id := clay.ID(id, 1)
 
     if clay.UI(widget_id)({ 
         layout = { 
             sizing = sizing,
             layoutDirection = .TopToBottom,
             padding = clay.Padding { 0, 0, 0, 0 },
-        },
-        custom = {customData = cast(rawptr)(cast(uintptr)widget+1)}
-    }) {}
+        }
+    }) {
+        if clay.UI(floating_id)({ 
+            layout = {
+                sizing = { 
+                    width = clay.SizingPercent(1.0), 
+                    height = clay.SizingPercent(1.0) 
+                }
+            },
+            floating = {
+                zIndex = z_index,
+                attachTo = .Parent,
+            },
+            custom = {customData = cast(rawptr)(cast(uintptr)widget+1)}
+        }) {}
+    }
 }
 
 run :: proc(editorui: ^EditorUI, data: ^$T) {
