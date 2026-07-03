@@ -42,11 +42,25 @@ create_layout :: proc(
 
             if clay.UI()({ 
                 layout = { 
-                    sizing = { width = clay.SizingPercent(0.5), height = clay.SizingGrow({}) } 
+                    sizing = { width = clay.SizingPercent(0.5), height = clay.SizingGrow({}) },
+                    layoutDirection = .TopToBottom,
                 }, 
                 backgroundColor = editorui.color_to_clay_color(bg),
             }) {
-                editorui.gameview()
+                if clay.UI()({ 
+                    layout = { 
+                        sizing = { width = clay.SizingPercent(1), height = clay.SizingPercent(0.5) } 
+                    }, 
+                }) {
+                    editorui.gameview()
+                }
+                if clay.UI()({ 
+                    layout = { 
+                        sizing = { width = clay.SizingPercent(1), height = clay.SizingPercent(0.5) } 
+                    }, 
+                }) {
+                    editorui.gameview()
+                }
             }
 
             if clay.UI()({ 
@@ -64,34 +78,52 @@ create_layout :: proc(
     return clay.EndLayout(auto_cast delta_time)
 }
 
-ExampleSubstruct :: struct {
-    button: bool "toggle",
-    //number: i32 "text placeholder(hi)",
-    range: f32 "slider min(-1.5) max(10.5)",
-    hidden: bool,
-    //vec: [2]f32 "text min(0) max(10.5)"
+ExamplePhysics :: struct {
+    pause: bool "toggle",
+    speed: f32 "slider min(-0.69) max(0.69)",
+}
+
+ExampleColor :: enum {
+    Red,
+    Orange,
+    Blue,
 }
 
 Example :: struct {
-    yuh: i32 "text min(0) max(100)",
-    text: string "text placeholder(name)",
-    element: Element "dropdown",
-    sub: ExampleSubstruct "group",
+    name: string "text placeholder(name)",
+    color: ExampleColor "dropdown",
+    physics: ExamplePhysics "group",
 }
 
 AppData :: struct {
     example: Example,
 }
 
-Element :: enum {
-    Fire,
-    Water,
-    Earth,
-    Air,
-}
-
+offset: f32 = 0
 update :: proc(appdata: rawptr, screen_rect: ut.Bounds(f32), delta_time: f32) {
-    //fmt.println(delta_time, screen_rect)
+    appdata: ^AppData = cast(^AppData)appdata
+
+    if !appdata.example.physics.pause {
+        offset += appdata.example.physics.speed
+    }
+
+    color: ut.Color
+
+    switch appdata.example.color {
+        case .Red:
+            color = ut.Color{255, 0, 0, 255}
+        case .Orange:
+            color = ut.Color{255, 125, 0, 255}
+        case .Blue:
+            color = ut.Color{0, 125, 255, 255}
+    }
+
+    rl.DrawRectangleRec(rl.Rectangle{
+        x = f32(int(screen_rect.width/2+50 + offset) % int(screen_rect.width+100))+screen_rect.x-100,
+        y = screen_rect.y+screen_rect.height/2-50,
+        width = 100,
+        height = 100,
+    }, auto_cast color)
 }
 
 main :: proc() { 
@@ -107,15 +139,7 @@ main :: proc() {
     }
     
     appdata := AppData {
-        example = Example {
-            sub = ExampleSubstruct {
-            range = 4,
-                button = false,
-                //number = 0,
-                //vec = {0.2, 1}
-            },
-            element = .Earth,
-        }
+        example = Example {}
     }    
     
     editorui.initialize_fn_ptrs(&editor_ui, rn.measure_text, layout, rn.render_editor, {

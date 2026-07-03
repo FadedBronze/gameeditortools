@@ -61,10 +61,18 @@ clay_raylib_render :: proc(editor_ui: ^editorui.EditorUI, elements: clay.ClayArr
                 //fmt.println(render_command.renderData.custom.customData)
                 //TODO false
                 render_custom_widget(editor_ui, render_command, editor_ui.render_infos, allocator, frame_allocator, dt)
+                fmt.println("ran!")
             case .ScissorStart:
-                unimplemented()
+                fmt.println("ran?")
+                rl.BeginScissorMode(
+                    i32(render_command.boundingBox.x),
+                    i32(render_command.boundingBox.y),
+                    i32(render_command.boundingBox.width),
+                    i32(render_command.boundingBox.height)
+                )
             case .ScissorEnd:
-                unimplemented()
+                fmt.println("ran.")
+                rl.EndScissorMode()
             case .Image:
                 unimplemented()
             case .OverlayColorStart:

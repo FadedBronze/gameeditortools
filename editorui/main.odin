@@ -390,13 +390,23 @@ gameview :: proc() {
     custom_id := editorui.CustomId {
         type = .Gameview
     }
-
+    
     if clay.UI()({ 
         layout = { 
             sizing = { width = clay.SizingPercent(1), height = clay.SizingPercent(1) } 
         }, 
-        custom = {
-            customData = transmute(rawptr)custom_id
+        clip = {
+            horizontal = true,
+            vertical = true,
         }
-    }) {}
+    }) {
+        if clay.UI()({ 
+            layout = { 
+                sizing = { width = clay.SizingPercent(1), height = clay.SizingPercent(1) } 
+            },
+            custom = {
+                customData = transmute(rawptr)custom_id
+            }
+        }) {}
+    }
 }

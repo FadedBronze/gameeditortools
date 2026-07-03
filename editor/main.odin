@@ -117,7 +117,7 @@ parse_tag :: proc(tag: string) -> ParsedTag {
         if strings.contains(str, "min") {
             res.flags += {.Min}
             ok: bool
-            res.max, ok = strconv.parse_f64(str[3+1:len(str)-1])
+            res.min, ok = strconv.parse_f64(str[3+1:len(str)-1])
             assert(ok)
         }
         if strings.contains(str, "placeholder") {
