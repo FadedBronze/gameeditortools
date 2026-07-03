@@ -202,19 +202,7 @@ create_panel_recurse_struct_fields :: proc(
             new_parent := groups[new_size]
 
             for i in 0..<info.count {
-                buf: [32]u8
-
-                start := "__"
-                copy_from_string(buf[0:len(start)], start)
-                copy_from_string(buf[len(start):len(start)+8], name)
-                middle := "_element_"
-                copy_from_string(buf[len(start)+8:len(start)+8+len(middle)], middle)
-                strconv.write_int(buf[len(start)+8+len(middle):], auto_cast i, 10)
-                
-                append(&panel_pool.labels_buffer, buf)
-                last := cast(^u8)&panel_pool.labels_buffer[len(panel_pool.labels_buffer)-1]
-
-                create_panel_recurse_struct_fields(s, o + uintptr(info.elem_size*i), tag, info.elem, panel_pool, &new_parent, GroupIndex(i), string(slice.from_ptr(last, 32)))
+                create_panel_recurse_struct_fields(s, o + uintptr(info.elem_size*i), tag, info.elem, panel_pool, &new_parent, GroupIndex(i), "")
             } 
         case rn.Type_Info_Integer:
             assert(info.endianness == .Platform)
@@ -386,22 +374,18 @@ create_panel_recurse_struct_fields :: proc(
 PanelPool :: struct {
     inputs: [dynamic]InputComponent,
     groups: [dynamic]Group,
-    labels_buffer: [dynamic][32]u8,
 }
 
 create_panel_pool :: proc(allocator: mem.Allocator) -> PanelPool {
     inputs := make([dynamic]InputComponent, allocator)
     groups := make([dynamic]Group, allocator)
-    labels_buffer := make([dynamic][32]u8, allocator)
 
     reserve(&inputs, 10000)
     reserve(&groups, 10000)
-    reserve(&labels_buffer, 10000)
 
     return PanelPool {
         inputs = inputs, 
         groups = groups,
-        labels_buffer = labels_buffer,
     }
 }
 

@@ -136,13 +136,11 @@ render_panel_recurse :: proc(editor_ui: ^EditorUI, panel: ^ed.Group) {
                 }, 
                 backgroundColor = color_to_clay_color(ut.change_opacity(ut.get_contrasting_color(editor_ui.theme.background_color), 20)),
             }) {
-                if !strings.has_prefix(panel.label, "__") {
-                    clay.Text(panel.label, clay.TextElementConfig {
-                        fontSize = u16(editor_ui.theme.font_size)*5/4,
-                        wrapMode = .Words,
-                        textColor = color_to_clay_color(editor_ui.theme.text_color),
-                    })
-                }
+                clay.Text(panel.label, clay.TextElementConfig {
+                    fontSize = u16(editor_ui.theme.font_size)*5/4,
+                    wrapMode = .Words,
+                    textColor = color_to_clay_color(editor_ui.theme.text_color),
+                })
 
                 if clay.UI()({ 
                     layout = { 
@@ -165,21 +163,19 @@ render_panel_recurse :: proc(editor_ui: ^EditorUI, panel: ^ed.Group) {
                     childGap = 5,
                 }, 
             }) {
-                if !strings.has_prefix(panel.label, "__") {
-                    clay.Text(panel.label, clay.TextElementConfig {
-                        fontSize = u16(editor_ui.theme.font_size),
-                        wrapMode = .Words,
-                        textColor = color_to_clay_color(editor_ui.theme.text_color),
-                    })
-                }
+                clay.Text(panel.label, clay.TextElementConfig {
+                    fontSize = u16(editor_ui.theme.font_size),
+                    wrapMode = .Words,
+                    textColor = color_to_clay_color(editor_ui.theme.text_color),
+                })
 
                 //fmt.println(panel.label)
-                custom_component(editor_ui, panel.label, panel.input)
+                custom_component(editor_ui, panel.input)
             }
     }
 }
 
-custom_component :: proc(editor_ui: ^EditorUI, id: string, widget: ed.InputIndex) {
+custom_component :: proc(editor_ui: ^EditorUI, widget: ed.InputIndex) {
     sizing: clay.Sizing
     
     size := clay.SizingFixed(f32(editor_ui.theme.font_size))
@@ -230,8 +226,7 @@ custom_component :: proc(editor_ui: ^EditorUI, id: string, widget: ed.InputIndex
         z_index += 1
     }
     
-    widget_id := clay.ID(id, 0)
-    floating_id := clay.ID(id, 1)
+    widget_id := clay.ID("widget", auto_cast widget)
 
     custom_id := CustomId {
         type = .InputIndex,
@@ -240,14 +235,14 @@ custom_component :: proc(editor_ui: ^EditorUI, id: string, widget: ed.InputIndex
         }
     }
 
-    if clay.UI(widget_id)({ 
+    if clay.UI()({ 
         layout = { 
             sizing = sizing,
             layoutDirection = .TopToBottom,
             padding = clay.Padding { 0, 0, 0, 0 },
         }
     }) {
-        if clay.UI(floating_id)({ 
+        if clay.UI(widget_id)({ 
             layout = {
                 sizing = { 
                     width = clay.SizingPercent(1.0), 
