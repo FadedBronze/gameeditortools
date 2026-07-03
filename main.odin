@@ -36,8 +36,6 @@ create_layout :: proc(
                 }, 
                 backgroundColor = editorui.color_to_clay_color(bg),
             }) {
-                label := "extra thinggy thing"
-                editorui.render_structure_panel(editor_ui, label, &appdata.example, label)
             }
 
             if clay.UI()({ 
@@ -54,8 +52,6 @@ create_layout :: proc(
                 }, 
                 backgroundColor = editorui.color_to_clay_color(bg),
             }) {
-                label := "theme"
-                editorui.render_structure_panel(editor_ui, label, &editor_ui.theme, label)
             }
         }
     }
@@ -87,6 +83,10 @@ Element :: enum {
     Water,
     Earth,
     Air,
+}
+
+update :: proc(appdata: rawptr, screen_rect: ut.Bounds(f32), delta_time: f32) {
+    
 }
 
 main :: proc() { 

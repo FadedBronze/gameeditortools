@@ -27,7 +27,7 @@ EditorUITheme :: struct {
     font_size: u8 "slider min(10) max(30)",
     text_color: ut.Color "slider",
     background_color: ut.Color "slider",
-    highlight_color: ut.Color "slider",
+    highlight_color: ut.Color "text",
 }
 
 EditorUI :: struct {
@@ -39,6 +39,7 @@ EditorUI :: struct {
     panels: map[string]ed.GroupIndex,
     layout_fn: LayoutFunction,
     render_fn: RenderFunction,
+    update_game: GameUpdateCallback,
 }
 
 color_to_clay_color :: proc(color: ut.Color) -> clay.Color {
@@ -52,6 +53,11 @@ color_to_clay_color :: proc(color: ut.Color) -> clay.Color {
 
 error_handler :: proc "c" (errorData: clay.ErrorData) {
     //fmt.println(errorData)
+}
+
+GameUpdateCallback :: struct {
+    fn: proc(rawptr, ut.Bounds(f32), f32),
+    data: rawptr,
 }
 
 RenderFunction :: proc(^EditorUI, rawptr)
@@ -69,9 +75,11 @@ initialize_fn_ptrs :: proc(
     measure_text: MeasureTextFunction,
     layout_fn: LayoutFunction,
     render_fn: RenderFunction,
+    update_fn: GameUpdateCallback,
 ) {
     editor_ui.layout_fn = layout_fn
     editor_ui.render_fn = render_fn
+    editor_ui.update_game = update_fn
     clay.SetMeasureTextFunction(measure_text, nil)
 }
 

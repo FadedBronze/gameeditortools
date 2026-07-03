@@ -302,6 +302,11 @@ render_dropdown_input :: proc(
     )
 }
 
+// TODO: rearrange the gameview in order such that the "custom components" clay sees doesn't directly map to `editor` components 
+// this allows for
+// - putting editor ui on top of the game view
+// - better z index handling 
+//   - in this case you need to split dropdown into two components managed by clay and clay handles the pointer events
 render_custom_widget :: proc(editor_ui: ^editorui.EditorUI, render_command: clay.RenderCommand, render_infos: RenderInfos, allocator: mem.Allocator, frame_allocator: mem.Allocator, clicked_index: ed.InputIndex) {
     input_index: ed.InputIndex = cast(ed.InputIndex)(cast(uintptr)render_command.renderData.custom.customData-1)
     input := editor_ui.panel_pool.inputs[input_index]
@@ -467,6 +472,10 @@ render_text_input :: proc(
                     active_data.buf_len += u8(len(clipboard_string))
                     active_data.buf[active_data.buf_len-1] = '\x00'
                 }
+            case .ENTER:
+                editor_ui.active_index = max(ed.InputIndex)
+                active_data := &editor_ui.active_data.(editorui.TextInput)
+                commit(commit_user_ptr, string(active_data.buf[0:active_data.buf_len]))
             }
             
             key = rl.GetKeyPressed()
@@ -719,6 +728,8 @@ render_editor : editorui.RenderFunction = proc(
     rl.SetWindowState({.WINDOW_RESIZABLE})
 
     for !rl.WindowShouldClose() {
+        dt := rl.GetFrameTime()
+
         mouse_position := rl.GetMousePosition()
         mouse_down := rl.IsMouseButtonDown(.LEFT)
         clay.SetPointerState(mouse_position, mouse_down)
@@ -726,7 +737,10 @@ render_editor : editorui.RenderFunction = proc(
 
         rl.BeginDrawing()
         rl.ClearBackground(auto_cast editor_ui.theme.background_color)
-        clay_raylib_render(editor_ui, editor_ui.layout_fn(editor_ui, userdata, rl.GetFrameTime()), context.allocator, context.temp_allocator)
+        clay_raylib_render(editor_ui, editor_ui.layout_fn(editor_ui, userdata, dt), context.allocator, context.temp_allocator)
+
+        editor_ui.update_game.fn(editor_ui.update_game.data, idek, dt)
+
         rl.EndDrawing()
     }
 }
