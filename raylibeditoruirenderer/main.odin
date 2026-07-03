@@ -46,7 +46,7 @@ RenderInfos :: struct {
     toggle: ToggleRenderInfo,
 }
 
-clay_raylib_render :: proc(editor_ui: ^editorui.EditorUI, elements: clay.ClayArray(clay.RenderCommand), allocator: mem.Allocator, frame_allocator: mem.Allocator) { 
+clay_raylib_render :: proc(editor_ui: ^editorui.EditorUI, elements: clay.ClayArray(clay.RenderCommand), allocator: mem.Allocator, frame_allocator: mem.Allocator, dt: f32) { 
     widget_color := ut.blend_two_colors(editor_ui.theme.background_color, editor_ui.theme.text_color, 0.1)
     widget_color_placeholder := ut.blend_two_colors(editor_ui.theme.background_color, editor_ui.theme.text_color, 0.3)
     widget_color_dark := ut.blend_two_colors(editor_ui.theme.background_color, editor_ui.theme.text_color, 0.9)
@@ -89,7 +89,7 @@ clay_raylib_render :: proc(editor_ui: ^editorui.EditorUI, elements: clay.ClayArr
     slx := slice.from_ptr(elements.internalArray, auto_cast elements.length)
 
     max_z_index_clicked_this_frame: i16 = min(i16)
-    max_z_element_index_this_frame: ed.InputIndex
+    max_z_custom_id_this_frame: editorui.CustomId
 
     for i in 0..<len(slx) {
         i := len(slx)-i-1
@@ -104,7 +104,7 @@ clay_raylib_render :: proc(editor_ui: ^editorui.EditorUI, elements: clay.ClayArr
             input_index: ed.InputIndex,
 
             max_z_index_clicked_this_frame: ^i16,
-            max_z_element_index_this_frame: ^ed.InputIndex,
+            max_z_custom_id_this_frame: ^editorui.CustomId,
         ) {
             bounds: ut.Bounds(f32)
             if editor_ui.active_index == input_index {
@@ -122,37 +122,62 @@ clay_raylib_render :: proc(editor_ui: ^editorui.EditorUI, elements: clay.ClayArr
 
             if render_command.zIndex > max_z_index_clicked_this_frame^ && mouse_within {
                 max_z_index_clicked_this_frame^ = render_command.zIndex
-                max_z_element_index_this_frame^ = input_index
+                max_z_custom_id_this_frame^ = editorui.CustomId {
+                    type = .InputIndex,
+                    value = {
+                        input_index = input_index,
+                    }
+                }
             }
         }
 
         if render_command.commandType == .Custom {
-            input_index: ed.InputIndex = cast(ed.InputIndex)(cast(uintptr)render_command.renderData.custom.customData-1)
-            input := editor_ui.panel_pool.inputs[input_index]
-            mouse_within := ut.position_within_bounds(auto_cast rl.GetMousePosition(), auto_cast render_command.boundingBox)
+            custom_id := transmute(editorui.CustomId)render_command.renderData.custom.customData
+            switch custom_id.type {
+                case .Null:
+                    unreachable()
+                case .InputIndex:
+                    input_index: ed.InputIndex = custom_id.value.input_index
+                    input := editor_ui.panel_pool.inputs[input_index]
+                    mouse_within := ut.position_within_bounds(auto_cast rl.GetMousePosition(), auto_cast render_command.boundingBox)
 
-            switch v in input {
-            case ed.Toggle,
-                 ed.TextInputString, 
-                 ed.TextInputMutableBuffer,
-                 ed.NumberInput(u8), 
-                 ed.NumberInput(u32), 
-                 ed.NumberInput(u64),
-                 ed.NumberInput(f32), 
-                 ed.NumberInput(f64),
-                 ed.NumberInput(i32):
-                if render_command.zIndex >= max_z_index_clicked_this_frame && mouse_within {
-                    max_z_index_clicked_this_frame = render_command.zIndex
-                    max_z_element_index_this_frame = input_index
-                }
-            case ed.Dropdown(u8):
-                dropdown_case(editor_ui, render_command, render_infos.dropdown, v, input_index, &max_z_index_clicked_this_frame, &max_z_element_index_this_frame)
-            case ed.Dropdown(u16): 
-                dropdown_case(editor_ui, render_command, render_infos.dropdown, v, input_index, &max_z_index_clicked_this_frame, &max_z_element_index_this_frame)
-            case ed.Dropdown(u32): 
-                dropdown_case(editor_ui, render_command, render_infos.dropdown, v, input_index, &max_z_index_clicked_this_frame, &max_z_element_index_this_frame)
-            case ed.Dropdown(u64):
-                dropdown_case(editor_ui, render_command, render_infos.dropdown, v, input_index, &max_z_index_clicked_this_frame, &max_z_element_index_this_frame)
+                    switch v in input {
+                    case ed.Toggle,
+                         ed.TextInputString, 
+                         ed.TextInputMutableBuffer,
+                         ed.NumberInput(u8), 
+                         ed.NumberInput(u32), 
+                         ed.NumberInput(u64),
+                         ed.NumberInput(f32), 
+                         ed.NumberInput(f64),
+                         ed.NumberInput(i32):
+                        if render_command.zIndex >= max_z_index_clicked_this_frame && mouse_within {
+                            max_z_index_clicked_this_frame = render_command.zIndex
+                            max_z_custom_id_this_frame = {
+                                type = .InputIndex,
+                                value = {
+                                    input_index = input_index,
+                                }
+                            }
+                        }
+                    case ed.Dropdown(u8):
+                        dropdown_case(editor_ui, render_command, render_infos.dropdown, v, input_index, &max_z_index_clicked_this_frame, &max_z_custom_id_this_frame)
+                    case ed.Dropdown(u16): 
+                        dropdown_case(editor_ui, render_command, render_infos.dropdown, v, input_index, &max_z_index_clicked_this_frame, &max_z_custom_id_this_frame)
+                    case ed.Dropdown(u32): 
+                        dropdown_case(editor_ui, render_command, render_infos.dropdown, v, input_index, &max_z_index_clicked_this_frame, &max_z_custom_id_this_frame)
+                    case ed.Dropdown(u64):
+                        dropdown_case(editor_ui, render_command, render_infos.dropdown, v, input_index, &max_z_index_clicked_this_frame, &max_z_custom_id_this_frame)
+                    }
+                case .Gameview:
+                    mouse_within := ut.position_within_bounds(auto_cast rl.GetMousePosition(), auto_cast render_command.boundingBox)
+
+                    if render_command.zIndex >= max_z_index_clicked_this_frame && mouse_within {
+                        max_z_index_clicked_this_frame = render_command.zIndex
+                        max_z_custom_id_this_frame = {
+                            type = .Gameview,
+                        }
+                    }
             }
         }
     }
@@ -180,7 +205,7 @@ clay_raylib_render :: proc(editor_ui: ^editorui.EditorUI, elements: clay.ClayArr
             case .Custom:
                 //fmt.println(render_command.renderData.custom.customData)
                 //TODO false
-                render_custom_widget(editor_ui, render_command, render_infos, allocator, frame_allocator, max_z_element_index_this_frame)
+                render_custom_widget(editor_ui, render_command, render_infos, allocator, frame_allocator, max_z_custom_id_this_frame, dt)
             case .ScissorStart:
                 unimplemented()
             case .ScissorEnd:
@@ -307,61 +332,72 @@ render_dropdown_input :: proc(
 // - putting editor ui on top of the game view
 // - better z index handling 
 //   - in this case you need to split dropdown into two components managed by clay and clay handles the pointer events
-render_custom_widget :: proc(editor_ui: ^editorui.EditorUI, render_command: clay.RenderCommand, render_infos: RenderInfos, allocator: mem.Allocator, frame_allocator: mem.Allocator, clicked_index: ed.InputIndex) {
-    input_index: ed.InputIndex = cast(ed.InputIndex)(cast(uintptr)render_command.renderData.custom.customData-1)
-    input := editor_ui.panel_pool.inputs[input_index]
-    within := input_index == clicked_index
+render_custom_widget :: proc(
+    editor_ui: ^editorui.EditorUI, render_command: clay.RenderCommand, render_infos: RenderInfos, allocator: mem.Allocator, frame_allocator: mem.Allocator, clicked_custom_id: editorui.CustomId, dt: f32
+) {
+    custom_id := transmute(editorui.CustomId)render_command.renderData.custom.customData
 
-    switch input_data in input {
-    case ed.Dropdown(u8):
-        render_dropdown_input(editor_ui, render_command, input_data, input_index, render_infos.dropdown, within)
-    case ed.Dropdown(u16):
-        render_dropdown_input(editor_ui, render_command, input_data, input_index, render_infos.dropdown, within)
-    case ed.Dropdown(u32):
-        render_dropdown_input(editor_ui, render_command, input_data, input_index, render_infos.dropdown, within)
-    case ed.Dropdown(u64):
-        render_dropdown_input(editor_ui, render_command, input_data, input_index, render_infos.dropdown, within)
-    case ed.Toggle:
-        within_bounds := ut.position_within_bounds(rl.GetMousePosition(), auto_cast render_command.boundingBox)
-        if within && within_bounds && rl.IsMouseButtonPressed(.LEFT) {
-            input_data.current^ = !input_data.current^
+    switch custom_id.type {
+    case .Null:
+        unreachable()
+    case .Gameview:
+        editor_ui.update_game.fn(editor_ui.update_game.data, auto_cast render_command.boundingBox, dt)
+    case .InputIndex:
+        input_index: ed.InputIndex = cast(ed.InputIndex)(cast(uintptr)render_command.renderData.custom.customData-1)
+        input := editor_ui.panel_pool.inputs[input_index]
+        within := input_index == clicked_custom_id.value.input_index
+
+        switch input_data in input {
+        case ed.Dropdown(u8):
+            render_dropdown_input(editor_ui, render_command, input_data, input_index, render_infos.dropdown, within)
+        case ed.Dropdown(u16):
+            render_dropdown_input(editor_ui, render_command, input_data, input_index, render_infos.dropdown, within)
+        case ed.Dropdown(u32):
+            render_dropdown_input(editor_ui, render_command, input_data, input_index, render_infos.dropdown, within)
+        case ed.Dropdown(u64):
+            render_dropdown_input(editor_ui, render_command, input_data, input_index, render_infos.dropdown, within)
+        case ed.Toggle:
+            within_bounds := ut.position_within_bounds(rl.GetMousePosition(), auto_cast render_command.boundingBox)
+            if within && within_bounds && rl.IsMouseButtonPressed(.LEFT) {
+                input_data.current^ = !input_data.current^
+            }
+            if input_data.current^ {
+                rl.DrawRectangleRec(auto_cast render_command.boundingBox, auto_cast render_infos.toggle.true_color)
+            } else {
+                rl.DrawRectangleRec(auto_cast render_command.boundingBox, auto_cast render_infos.toggle.false_color)
+            }
+        case ed.TextInputString:
+            render_text_input(
+                editor_ui, 
+                render_command, 
+                input_data.placeholder, 
+                input_data.text == nil ? "" : input_data.text^, 
+                cast(rawptr)input_data.text, 
+                proc(str: rawptr, new_str: string) {
+                    old_string: ^string = cast(^string)str
+                    old_string^ = new_str
+                }, 
+                input_index, 
+                render_infos.text, 
+                allocator, 
+                frame_allocator, 
+                within
+            )
+        case ed.TextInputMutableBuffer:
+            //input_data.
+        case ed.NumberInput(f64):
+            render_number_input(editor_ui, render_command, input_data, input_index, render_infos.slider, render_infos.text, allocator, frame_allocator, within)
+        case ed.NumberInput(i32):
+            render_number_input(editor_ui, render_command, input_data, input_index, render_infos.slider, render_infos.text, allocator, frame_allocator, within)
+        case ed.NumberInput(u8):
+            render_number_input(editor_ui, render_command, input_data, input_index, render_infos.slider, render_infos.text, allocator, frame_allocator, within)
+        case ed.NumberInput(f32):
+            render_number_input(editor_ui, render_command, input_data, input_index, render_infos.slider, render_infos.text, allocator, frame_allocator, within)
+        case ed.NumberInput(u64):
+            render_number_input(editor_ui, render_command, input_data, input_index, render_infos.slider, render_infos.text, allocator, frame_allocator, within)
+        case ed.NumberInput(u32):
+            render_number_input(editor_ui, render_command, input_data, input_index, render_infos.slider, render_infos.text, allocator, frame_allocator, within)
         }
-        if input_data.current^ {
-            rl.DrawRectangleRec(auto_cast render_command.boundingBox, auto_cast render_infos.toggle.true_color)
-        } else {
-            rl.DrawRectangleRec(auto_cast render_command.boundingBox, auto_cast render_infos.toggle.false_color)
-        }
-    case ed.TextInputString:
-        render_text_input(
-            editor_ui, 
-            render_command, 
-            input_data.placeholder, 
-            input_data.text == nil ? "" : input_data.text^, 
-            cast(rawptr)input_data.text, 
-            proc(str: rawptr, new_str: string) {
-                old_string: ^string = cast(^string)str
-                old_string^ = new_str
-            }, 
-            input_index, 
-            render_infos.text, 
-            allocator, 
-            frame_allocator, 
-            within
-        )
-    case ed.TextInputMutableBuffer:
-        //input_data.
-    case ed.NumberInput(f64):
-        render_number_input(editor_ui, render_command, input_data, input_index, render_infos.slider, render_infos.text, allocator, frame_allocator, within)
-    case ed.NumberInput(i32):
-        render_number_input(editor_ui, render_command, input_data, input_index, render_infos.slider, render_infos.text, allocator, frame_allocator, within)
-    case ed.NumberInput(u8):
-        render_number_input(editor_ui, render_command, input_data, input_index, render_infos.slider, render_infos.text, allocator, frame_allocator, within)
-    case ed.NumberInput(f32):
-        render_number_input(editor_ui, render_command, input_data, input_index, render_infos.slider, render_infos.text, allocator, frame_allocator, within)
-    case ed.NumberInput(u64):
-        render_number_input(editor_ui, render_command, input_data, input_index, render_infos.slider, render_infos.text, allocator, frame_allocator, within)
-    case ed.NumberInput(u32):
-        render_number_input(editor_ui, render_command, input_data, input_index, render_infos.slider, render_infos.text, allocator, frame_allocator, within)
     }
 }
 
@@ -737,9 +773,7 @@ render_editor : editorui.RenderFunction = proc(
 
         rl.BeginDrawing()
         rl.ClearBackground(auto_cast editor_ui.theme.background_color)
-        clay_raylib_render(editor_ui, editor_ui.layout_fn(editor_ui, userdata, dt), context.allocator, context.temp_allocator)
-
-        editor_ui.update_game.fn(editor_ui.update_game.data, idek, dt)
+        clay_raylib_render(editor_ui, editor_ui.layout_fn(editor_ui, userdata, dt), context.allocator, context.temp_allocator, dt)
 
         rl.EndDrawing()
     }

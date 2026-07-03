@@ -42,6 +42,22 @@ EditorUI :: struct {
     update_game: GameUpdateCallback,
 }
 
+IndexType :: enum u16 {
+    Null = 0,
+    InputIndex,
+    Gameview,
+}
+
+IndexValue :: struct #raw_union {
+    input_index: ed.InputIndex,
+    gameview_index: u32,
+}
+
+CustomId :: struct {
+    type: IndexType,
+    value: IndexValue
+}
+
 color_to_clay_color :: proc(color: ut.Color) -> clay.Color {
     return {
         f32(color.r),
@@ -217,6 +233,13 @@ custom_component :: proc(editor_ui: ^EditorUI, id: string, widget: ed.InputIndex
     widget_id := clay.ID(id, 0)
     floating_id := clay.ID(id, 1)
 
+    custom_id := CustomId {
+        type = .InputIndex,
+        value = {
+            input_index = widget,
+        }
+    }
+
     if clay.UI(widget_id)({ 
         layout = { 
             sizing = sizing,
@@ -235,11 +258,26 @@ custom_component :: proc(editor_ui: ^EditorUI, id: string, widget: ed.InputIndex
                 zIndex = z_index,
                 attachTo = .Parent,
             },
-            custom = {customData = cast(rawptr)(cast(uintptr)widget+1)}
+            custom = {customData = transmute(rawptr)(custom_id)}
         }) {}
     }
 }
 
 run :: proc(editorui: ^EditorUI, data: ^$T) {
     editorui.render_fn(editorui, data)
+}
+
+gameview :: proc() {
+    custom_id := editorui.CustomId {
+        type = .Gameview
+    }
+
+    if clay.UI()({ 
+        layout = { 
+            sizing = { width = clay.SizingPercent(1), height = clay.SizingPercent(1) } 
+        }, 
+        custom = {
+            customData = transmute(rawptr)custom_id
+        }
+    }) {}
 }

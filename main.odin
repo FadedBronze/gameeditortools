@@ -44,6 +44,7 @@ create_layout :: proc(
                 }, 
                 backgroundColor = editorui.color_to_clay_color(bg),
             }) {
+                editorui.gameview()
             }
 
             if clay.UI()({ 
@@ -52,6 +53,8 @@ create_layout :: proc(
                 }, 
                 backgroundColor = editorui.color_to_clay_color(bg),
             }) {
+                label := "theme"
+                editorui.render_structure_panel(editor_ui, label, &editor_ui.theme, label)
             }
         }
     }
@@ -86,7 +89,7 @@ Element :: enum {
 }
 
 update :: proc(appdata: rawptr, screen_rect: ut.Bounds(f32), delta_time: f32) {
-    
+    fmt.println(delta_time, screen_rect)
 }
 
 main :: proc() { 
@@ -101,8 +104,6 @@ main :: proc() {
         return create_layout(editor_ui, cast(^AppData)appdata, rl.GetFrameTime())
     }
     
-    editorui.initialize_fn_ptrs(&editor_ui, rn.measure_text, layout, rn.render_editor)
-
     appdata := AppData {
         example = Example {
             sub = ExampleSubstruct {
@@ -114,6 +115,11 @@ main :: proc() {
             element = .Earth,
         }
     }    
+    
+    editorui.initialize_fn_ptrs(&editor_ui, rn.measure_text, layout, rn.render_editor, {
+        fn = update,
+        data = &appdata
+    })
 
     editorui.run(&editor_ui, &appdata)
 }

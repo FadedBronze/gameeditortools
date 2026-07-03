@@ -103,7 +103,8 @@ test_main :: proc() {
         return create_layout(editor_ui, cast(^AppData)appdata, rl.GetFrameTime())
     }
     
-    editorui.initialize_fn_ptrs(&editor_ui, rn.measure_text, layout, rn.render_editor)
+    //TODO
+    //editorui.initialize_fn_ptrs(&editor_ui, rn.measure_text, layout, rn.render_editor)
 
     appdata := AppData {
         example = Example {
