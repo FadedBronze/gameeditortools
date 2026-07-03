@@ -89,7 +89,7 @@ Element :: enum {
 }
 
 update :: proc(appdata: rawptr, screen_rect: ut.Bounds(f32), delta_time: f32) {
-    fmt.println(delta_time, screen_rect)
+    //fmt.println(delta_time, screen_rect)
 }
 
 main :: proc() { 

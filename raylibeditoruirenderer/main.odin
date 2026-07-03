@@ -343,7 +343,7 @@ render_custom_widget :: proc(
     case .Gameview:
         editor_ui.update_game.fn(editor_ui.update_game.data, auto_cast render_command.boundingBox, dt)
     case .InputIndex:
-        input_index: ed.InputIndex = cast(ed.InputIndex)(cast(uintptr)render_command.renderData.custom.customData-1)
+        input_index: ed.InputIndex = custom_id.value.input_index
         input := editor_ui.panel_pool.inputs[input_index]
         within := input_index == clicked_custom_id.value.input_index
 
