@@ -9,6 +9,51 @@ import "core:strings"
 import "core:mem"
 import "core:fmt"
 
+SliderRenderInfo :: struct {
+    font_size: u8,
+    bar_height: u8,
+    bar_padding_x: u8,
+    handle_size: u8,
+    back_color: ut.Color, 
+    bar_color: ut.Color, 
+    handle_color: ut.Color,
+    text_color: ut.Color,
+}
+
+ToggleRenderInfo :: struct {
+    true_color: ut.Color,
+    false_color: ut.Color,
+}
+
+RenderInfos :: struct {
+    slider: SliderRenderInfo,
+    text: TextInputRenderInfo,
+    dropdown: DropdownRenderInfo,
+    toggle: ToggleRenderInfo,
+}
+
+DropdownRenderInfo :: struct {
+    font_size: u8,
+    padding: u8,
+    gap: u8,
+    inner_padding: u8,
+    back_color: ut.Color,
+    border_color: ut.Color,
+    text_color: ut.Color,
+    outline_color: ut.Color,
+}
+
+TextInputRenderInfo :: struct {
+    font_size: u8,
+    padding: u8,
+    caret_width: u8,
+    caret_color: ut.Color,
+    back_color: ut.Color,
+    border_color: ut.Color,
+    placeholder_text_color: ut.Color,
+    text_color: ut.Color,
+}
+
 TextInput :: struct {
     buf: []u8,
     buf_len: u8,
@@ -32,6 +77,8 @@ EditorUITheme :: struct {
 
 EditorUI :: struct {
     theme: EditorUITheme,
+    render_infos: RenderInfos,
+
     active_data: ActiveWidgetData,
     active_index: ed.InputIndex,
 
@@ -45,6 +92,7 @@ EditorUI :: struct {
 IndexType :: enum u16 {
     Null = 0,
     InputIndex,
+    DropdownFloatingMenu,
     Gameview,
 }
 
@@ -99,6 +147,50 @@ initialize_fn_ptrs :: proc(
     clay.SetMeasureTextFunction(measure_text, nil)
 }
 
+create_render_infos :: proc(theme: EditorUITheme) -> RenderInfos {
+    widget_color := ut.blend_two_colors(theme.background_color, theme.text_color, 0.1)
+    widget_color_placeholder := ut.blend_two_colors(theme.background_color, theme.text_color, 0.3)
+    widget_color_middle := ut.blend_two_colors(theme.background_color, theme.text_color, 0.5)
+    widget_color_dark := ut.blend_two_colors(theme.background_color, theme.text_color, 0.9)
+
+    render_infos := RenderInfos {
+        slider = SliderRenderInfo {
+            back_color = widget_color,
+            font_size = theme.font_size,
+            bar_color = widget_color_dark,
+            handle_color = theme.highlight_color,
+            text_color = theme.text_color,
+            bar_height = 8,
+            bar_padding_x = 3,
+            handle_size = 10,
+        },
+        text = TextInputRenderInfo {
+            back_color = widget_color,
+            font_size = theme.font_size,
+            border_color = widget_color_dark,
+            caret_color = theme.highlight_color,
+            caret_width = 1,
+            text_color = theme.text_color,
+            placeholder_text_color = widget_color_placeholder,
+            padding = 3,
+        },
+        dropdown = DropdownRenderInfo {
+            back_color = widget_color,
+            font_size = theme.font_size,
+            border_color = widget_color_dark,
+            text_color = theme.text_color,
+            outline_color = widget_color_middle,
+            padding = 3,
+            gap = 3,
+        },
+        toggle = ToggleRenderInfo {
+            false_color = widget_color_dark,
+            true_color = widget_color,
+        }
+    }
+    return render_infos
+}
+
 create_editorui :: proc(theme: EditorUITheme, allocator: mem.Allocator) -> EditorUI {
     min_memory_size := clay.MinMemorySize()
     memory := make([^]u8, min_memory_size, allocator)
@@ -108,6 +200,7 @@ create_editorui :: proc(theme: EditorUITheme, allocator: mem.Allocator) -> Edito
 
     return EditorUI {
         panel_pool = ed.create_panel_pool(allocator),
+        render_infos = create_render_infos(theme),
         panels = make(map[string]ed.GroupIndex, allocator),
         active_index = max(ed.InputIndex),
         theme = theme,
@@ -115,6 +208,7 @@ create_editorui :: proc(theme: EditorUITheme, allocator: mem.Allocator) -> Edito
 }
 
 render_structure_panel :: proc(editor_ui: ^EditorUI, id: string, structure: ^$T, label: string) {
+    editor_ui.render_infos = create_render_infos(editor_ui.theme)
     if panel, ok := editor_ui.panels[id]; ok {
         render_panel_recurse(editor_ui, &editor_ui.panel_pool.groups[panel])
     } else {
@@ -175,11 +269,18 @@ render_panel_recurse :: proc(editor_ui: ^EditorUI, panel: ^ed.Group) {
     }
 }
 
+calculate_dropdown_height :: proc(input: ed.Dropdown($T), theme: editorui.EditorUITheme, dropdown: DropdownRenderInfo) -> f32 {
+    gap := f32(dropdown.gap)
+    font_size := f32(theme.font_size)
+    inner_padding := f32(dropdown.inner_padding)
+    
+    return (gap+font_size)*f32(len(input.enum_names)+1)-gap+inner_padding
+}
+
 custom_component :: proc(editor_ui: ^EditorUI, widget: ed.InputIndex) {
     sizing: clay.Sizing
     
     size := clay.SizingFixed(f32(editor_ui.theme.font_size))
-    z_index: i16 = 1
 
     number_input_sizing :: proc(editor_ui: ^EditorUI, number_input: ed.NumberInput($T)) -> clay.Sizing {
         switch number_input.type {
@@ -191,14 +292,15 @@ custom_component :: proc(editor_ui: ^EditorUI, widget: ed.InputIndex) {
         unreachable()
     }
 
-    switch v in editor_ui.panel_pool.inputs[widget] {
+    input := editor_ui.panel_pool.inputs[widget]
+
+    switch v in input {
     case ed.Toggle:
         sizing = { width = size, height = size }
     case ed.TextInputMutableBuffer:
         sizing = { width = clay.SizingGrow({}), height = size }
     case ed.TextInputString:
         sizing = { width = clay.SizingGrow({}), height = size }
-
     case ed.NumberInput(f32):
         sizing = number_input_sizing(editor_ui, v)
     case ed.NumberInput(u32):
@@ -211,19 +313,14 @@ custom_component :: proc(editor_ui: ^EditorUI, widget: ed.InputIndex) {
         sizing = number_input_sizing(editor_ui, v)
     case ed.NumberInput(u8):
         sizing = number_input_sizing(editor_ui, v)
-
     case ed.Dropdown(u8):
         sizing = { width = clay.SizingGrow({}), height = size }
-        z_index += 1
     case ed.Dropdown(u16):
         sizing = { width = clay.SizingGrow({}), height = size }
-        z_index += 1
     case ed.Dropdown(u32):
         sizing = { width = clay.SizingGrow({}), height = size }
-        z_index += 1
     case ed.Dropdown(u64):
         sizing = { width = clay.SizingGrow({}), height = size }
-        z_index += 1
     }
     
     widget_id := clay.ID("widget", auto_cast widget)
@@ -235,26 +332,53 @@ custom_component :: proc(editor_ui: ^EditorUI, widget: ed.InputIndex) {
         }
     }
 
-    if clay.UI()({ 
-        layout = { 
-            sizing = sizing,
-            layoutDirection = .TopToBottom,
-            padding = clay.Padding { 0, 0, 0, 0 },
+    dropdown_menu :: proc(input_index: ed.InputIndex, height: f32) {
+        custom_id := CustomId {
+            type = .DropdownFloatingMenu,
+            value = {
+                input_index = input_index,
+            }
         }
-    }) {
-        if clay.UI(widget_id)({ 
+        if clay.UI(clay.ID("widget-dropdown", auto_cast input_index))({ 
             layout = {
                 sizing = { 
                     width = clay.SizingPercent(1.0), 
-                    height = clay.SizingPercent(1.0) 
+                    height = clay.SizingFixed(height)
                 }
             },
             floating = {
-                zIndex = z_index,
+                zIndex = 1,
                 attachTo = .Parent,
             },
             custom = {customData = transmute(rawptr)(custom_id)}
         }) {}
+    }
+
+    if clay.UI(widget_id)({ 
+        layout = { 
+            sizing = sizing,
+            layoutDirection = .TopToBottom,
+            padding = clay.Padding { 0, 0, 0, 0 },
+        },
+        custom = {customData = transmute(rawptr)(custom_id)}
+    }) {
+        if editor_ui.active_index == widget {
+            #partial switch v in input {
+                case ed.Dropdown(u8):
+                    height := calculate_dropdown_height(v, editor_ui.theme, editor_ui.render_infos.dropdown)
+                    dropdown_menu(widget, height)
+                case ed.Dropdown(u16):
+                    height := calculate_dropdown_height(v, editor_ui.theme, editor_ui.render_infos.dropdown)
+                    dropdown_menu(widget, height)
+                case ed.Dropdown(u32):
+                    height := calculate_dropdown_height(v, editor_ui.theme, editor_ui.render_infos.dropdown)
+                    dropdown_menu(widget, height)
+                case ed.Dropdown(u64):
+                    height := calculate_dropdown_height(v, editor_ui.theme, editor_ui.render_infos.dropdown)
+                    dropdown_menu(widget, height)
+                case:
+            }
+        }
     }
 }
 

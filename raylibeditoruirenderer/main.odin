@@ -34,153 +34,8 @@ clay_to_raylib_color :: proc(color: clay.Color) -> rl.Color {
     return {u8(color.r), u8(color.g), u8(color.b), u8(color.a)}
 }
 
-ToggleRenderInfo :: struct {
-    true_color: ut.Color,
-    false_color: ut.Color,
-}
-
-RenderInfos :: struct {
-    slider: SliderRenderInfo,
-    text: TextInputRenderInfo,
-    dropdown: DropdownRenderInfo,
-    toggle: ToggleRenderInfo,
-}
-
-clay_raylib_render :: proc(editor_ui: ^editorui.EditorUI, elements: clay.ClayArray(clay.RenderCommand), allocator: mem.Allocator, frame_allocator: mem.Allocator, dt: f32) { 
-    widget_color := ut.blend_two_colors(editor_ui.theme.background_color, editor_ui.theme.text_color, 0.1)
-    widget_color_placeholder := ut.blend_two_colors(editor_ui.theme.background_color, editor_ui.theme.text_color, 0.3)
-    widget_color_dark := ut.blend_two_colors(editor_ui.theme.background_color, editor_ui.theme.text_color, 0.9)
-
-    render_infos := RenderInfos {
-        slider = SliderRenderInfo {
-            back_color = widget_color,
-            font_size = editor_ui.theme.font_size,
-            bar_color = widget_color_dark,
-            handle_color = editor_ui.theme.highlight_color,
-            text_color = editor_ui.theme.text_color,
-            bar_height = 8,
-            bar_padding_x = 3,
-            handle_size = 10,
-        },
-        text = TextInputRenderInfo {
-            back_color = widget_color,
-            font_size = editor_ui.theme.font_size,
-            border_color = widget_color_dark,
-            caret_color = editor_ui.theme.highlight_color,
-            caret_width = 1,
-            text_color = editor_ui.theme.text_color,
-            placeholder_text_color = widget_color_placeholder,
-            padding = 3,
-        },
-        dropdown = DropdownRenderInfo {
-            back_color = widget_color,
-            font_size = editor_ui.theme.font_size,
-            border_color = widget_color_dark,
-            text_color = editor_ui.theme.text_color,
-            padding = 3,
-            gap = 3,
-        },
-        toggle = ToggleRenderInfo {
-            false_color = widget_color_dark,
-            true_color = widget_color,
-        }
-    }
-    
+clay_raylib_render :: proc(editor_ui: ^editorui.EditorUI, elements: clay.ClayArray(clay.RenderCommand), allocator: mem.Allocator, frame_allocator: mem.Allocator, dt: f32) {  
     slx := slice.from_ptr(elements.internalArray, auto_cast elements.length)
-
-    max_z_index_clicked_this_frame: i16 = min(i16)
-    max_z_custom_id_this_frame: editorui.CustomId
-
-    for i in 0..<len(slx) {
-        i := len(slx)-i-1
-        element := slx[i]
-        render_command: clay.RenderCommand = element;
-        
-        dropdown_case :: proc(
-            editor_ui: ^editorui.EditorUI, 
-            render_command: clay.RenderCommand, 
-            dropdown: DropdownRenderInfo, 
-            input: ed.Dropdown($T), 
-            input_index: ed.InputIndex,
-
-            max_z_index_clicked_this_frame: ^i16,
-            max_z_custom_id_this_frame: ^editorui.CustomId,
-        ) {
-            bounds: ut.Bounds(f32)
-            if editor_ui.active_index == input_index {
-                bounds = ut.Bounds(f32) {
-                    x = render_command.boundingBox.x,
-                    y = render_command.boundingBox.y,
-                    width = render_command.boundingBox.width,
-                    height = calculate_dropdown_height(input, editor_ui.theme, dropdown),
-                }
-            } else {
-                bounds = auto_cast render_command.boundingBox
-            }
-
-            mouse_within := ut.position_within_bounds(auto_cast rl.GetMousePosition(), bounds)
-
-            if render_command.zIndex > max_z_index_clicked_this_frame^ && mouse_within {
-                max_z_index_clicked_this_frame^ = render_command.zIndex
-                max_z_custom_id_this_frame^ = editorui.CustomId {
-                    type = .InputIndex,
-                    value = {
-                        input_index = input_index,
-                    }
-                }
-            }
-        }
-
-        if render_command.commandType == .Custom {
-            custom_id := transmute(editorui.CustomId)render_command.renderData.custom.customData
-            switch custom_id.type {
-                case .Null:
-                    unreachable()
-                case .InputIndex:
-                    input_index: ed.InputIndex = custom_id.value.input_index
-                    input := editor_ui.panel_pool.inputs[input_index]
-                    mouse_within := ut.position_within_bounds(auto_cast rl.GetMousePosition(), auto_cast render_command.boundingBox)
-
-                    switch v in input {
-                    case ed.Toggle,
-                         ed.TextInputString, 
-                         ed.TextInputMutableBuffer,
-                         ed.NumberInput(u8), 
-                         ed.NumberInput(u32), 
-                         ed.NumberInput(u64),
-                         ed.NumberInput(f32), 
-                         ed.NumberInput(f64),
-                         ed.NumberInput(i32):
-                        if render_command.zIndex >= max_z_index_clicked_this_frame && mouse_within {
-                            max_z_index_clicked_this_frame = render_command.zIndex
-                            max_z_custom_id_this_frame = {
-                                type = .InputIndex,
-                                value = {
-                                    input_index = input_index,
-                                }
-                            }
-                        }
-                    case ed.Dropdown(u8):
-                        dropdown_case(editor_ui, render_command, render_infos.dropdown, v, input_index, &max_z_index_clicked_this_frame, &max_z_custom_id_this_frame)
-                    case ed.Dropdown(u16): 
-                        dropdown_case(editor_ui, render_command, render_infos.dropdown, v, input_index, &max_z_index_clicked_this_frame, &max_z_custom_id_this_frame)
-                    case ed.Dropdown(u32): 
-                        dropdown_case(editor_ui, render_command, render_infos.dropdown, v, input_index, &max_z_index_clicked_this_frame, &max_z_custom_id_this_frame)
-                    case ed.Dropdown(u64):
-                        dropdown_case(editor_ui, render_command, render_infos.dropdown, v, input_index, &max_z_index_clicked_this_frame, &max_z_custom_id_this_frame)
-                    }
-                case .Gameview:
-                    mouse_within := ut.position_within_bounds(auto_cast rl.GetMousePosition(), auto_cast render_command.boundingBox)
-
-                    if render_command.zIndex >= max_z_index_clicked_this_frame && mouse_within {
-                        max_z_index_clicked_this_frame = render_command.zIndex
-                        max_z_custom_id_this_frame = {
-                            type = .Gameview,
-                        }
-                    }
-            }
-        }
-    }
 
     for element in slx {
         render_command: clay.RenderCommand = element;
@@ -205,7 +60,7 @@ clay_raylib_render :: proc(editor_ui: ^editorui.EditorUI, elements: clay.ClayArr
             case .Custom:
                 //fmt.println(render_command.renderData.custom.customData)
                 //TODO false
-                render_custom_widget(editor_ui, render_command, render_infos, allocator, frame_allocator, max_z_custom_id_this_frame, dt)
+                render_custom_widget(editor_ui, render_command, editor_ui.render_infos, allocator, frame_allocator, dt)
             case .ScissorStart:
                 unimplemented()
             case .ScissorEnd:
@@ -220,104 +75,80 @@ clay_raylib_render :: proc(editor_ui: ^editorui.EditorUI, elements: clay.ClayArr
     }
 }
 
-DropdownRenderInfo :: struct {
-    font_size: u8,
-    padding: u8,
-    gap: u8,
-    inner_padding: u8,
-    back_color: ut.Color,
-    border_color: ut.Color,
-    text_color: ut.Color,
-}
-
-calculate_dropdown_height :: proc(input: ed.Dropdown($T), theme: editorui.EditorUITheme, dropdown: DropdownRenderInfo) -> f32 {
-    gap := f32(dropdown.gap)
-    font_size := f32(theme.font_size)
-    inner_padding := f32(dropdown.inner_padding)
-    
-    return (gap+font_size)*f32(len(input.enum_names)+1)-gap+inner_padding
-}
-
-render_dropdown_input :: proc(
+render_dropdown_floating_menu :: proc(
     editor_ui: ^editorui.EditorUI,
     render_command: clay.RenderCommand, 
     dropdown_input: ed.Dropdown($T), 
     input_index: ed.InputIndex,
-    render_info: DropdownRenderInfo,
+    render_info: editorui.DropdownRenderInfo,
     within: bool,
 ) {
-    active_bounds := ut.Bounds(f32) {
-        x = render_command.boundingBox.x,
-        y = render_command.boundingBox.y,
-        width = render_command.boundingBox.width,
-        height = calculate_dropdown_height(dropdown_input, editor_ui.theme, render_info)
-    }
-
-    mouse_within := ut.position_within_bounds(auto_cast rl.GetMousePosition(), auto_cast render_command.boundingBox)
-    mouse_within_active := ut.position_within_bounds(auto_cast rl.GetMousePosition(), auto_cast active_bounds)
-
-    rl.DrawRectangleRec(auto_cast render_command.boundingBox, auto_cast render_info.back_color)
-
-    active := editor_ui.active_index == input_index
-
     padding := f32(render_info.padding)
     gap := f32(render_info.gap)
     font_size := f32(render_info.font_size)
 
-    if mouse_within && within && rl.IsMouseButtonPressed(.LEFT) {
-        editor_ui.active_index = input_index
+    input_bounds := ut.Bounds(f32) {
+        x = render_command.boundingBox.x,
+        y = render_command.boundingBox.y,
+        width = render_command.boundingBox.width,
+        height = font_size,
     }
 
-    if !mouse_within_active && rl.IsMouseButtonPressed(.LEFT) && active {
+    mouse_within := ut.position_within_bounds(auto_cast rl.GetMousePosition(), auto_cast render_command.boundingBox)
+    active := editor_ui.active_index == input_index
+
+    rl.DrawRectangleRec(auto_cast render_command.boundingBox, auto_cast render_info.back_color)
+    
+    if !mouse_within && rl.IsMouseButtonPressed(.LEFT) && active {
         editor_ui.active_index = max(ed.InputIndex)
     }
-
-    if active {  
-        rl.DrawRectangleRec(auto_cast active_bounds, auto_cast render_info.back_color)
-        rl.DrawRectangleLinesEx(auto_cast render_command.boundingBox, 1, auto_cast render_info.border_color)
-
-        for i in 0..<len(dropdown_input.enum_names) {
-            name := dropdown_input.enum_names[i]
-            value := dropdown_input.enum_values[i]
-            offset := f32(i+1) * (gap + font_size)
-
-            buf: [64]u8
-            length := copy_from_string(buf[:], name)
-            buf[length] = '\x00'
-            length += 1
-
-            bounds := ut.Bounds(f32) {
-                x = padding + render_command.boundingBox.x,
-                y = render_command.boundingBox.y + offset + f32(render_info.inner_padding)-f32(render_info.gap)/2,
-                width = render_command.boundingBox.width,
-                height = f32(render_info.font_size)+f32(render_info.gap),
-            }
-
-            if ut.position_within_bounds(auto_cast rl.GetMousePosition(), bounds) {
-                rl.DrawRectangleRec(auto_cast bounds, auto_cast ut.change_opacity(ut.get_contrasting_color(render_info.back_color), 20))
-
-                if rl.IsMouseButtonDown(.LEFT) {
-                    dropdown_input.current^ = T(value)
-                    editor_ui.active_index = max(ed.InputIndex)
-                }
-            }
-
-            rl.DrawText(
-                strings.unsafe_string_to_cstring(string(buf[:length])),
-                i32(padding + render_command.boundingBox.x),
-                i32(render_command.boundingBox.y + offset + f32(render_info.inner_padding)),
-                i32(font_size),
-                auto_cast render_info.text_color,
-            )
-        }
-    }
     
+    rl.DrawRectangleRec(auto_cast render_command.boundingBox, auto_cast render_info.back_color)
+
+    rl.DrawRectangleLinesEx(auto_cast render_command.boundingBox, 1, auto_cast auto_cast render_info.outline_color)
+    rl.DrawRectangleLinesEx(auto_cast input_bounds, 1, auto_cast render_info.border_color)
+
+    for i in 0..<len(dropdown_input.enum_names) {
+        name := dropdown_input.enum_names[i]
+        value := dropdown_input.enum_values[i]
+        offset := f32(i+1) * (gap + font_size)
+
+        buf: [64]u8
+        length := copy_from_string(buf[:], name)
+        buf[length] = '\x00'
+        length += 1
+
+        bounds := ut.Bounds(f32) {
+            x = render_command.boundingBox.x,
+            y = render_command.boundingBox.y + offset + f32(render_info.inner_padding)-f32(render_info.gap)/2,
+            width = render_command.boundingBox.width,
+            height = f32(render_info.font_size)+f32(render_info.gap),
+        }
+
+        if ut.position_within_bounds(auto_cast rl.GetMousePosition(), bounds) {
+            rl.DrawRectangleRec(auto_cast bounds, auto_cast ut.change_opacity(ut.get_contrasting_color(render_info.back_color), 20))
+
+            if rl.IsMouseButtonDown(.LEFT) {
+                dropdown_input.current^ = T(value)
+                editor_ui.active_index = max(ed.InputIndex)
+            }
+        }
+
+        rl.DrawText(
+            strings.unsafe_string_to_cstring(string(buf[:length])),
+            i32(padding + render_command.boundingBox.x),
+            i32(render_command.boundingBox.y + offset + f32(render_info.inner_padding)),
+            i32(font_size),
+            auto_cast render_info.text_color,
+        )
+    }
+
     selected_name := dropdown_input.enum_names[dropdown_input.current^]
     buf: [64]u8
     length := copy_from_string(buf[:], selected_name)
     buf[length] = '\x00'
     length += 1
-    
+
     rl.DrawText(
         strings.unsafe_string_to_cstring(string(buf[:length])),
         i32(padding + render_command.boundingBox.x),
@@ -327,13 +158,46 @@ render_dropdown_input :: proc(
     )
 }
 
-// TODO: rearrange the gameview in order such that the "custom components" clay sees doesn't directly map to `editor` components 
-// this allows for
-// - putting editor ui on top of the game view
-// - better z index handling 
-//   - in this case you need to split dropdown into two components managed by clay and clay handles the pointer events
+render_dropdown_input :: proc(
+    editor_ui: ^editorui.EditorUI,
+    render_command: clay.RenderCommand, 
+    dropdown_input: ed.Dropdown($T), 
+    input_index: ed.InputIndex,
+    render_info: editorui.DropdownRenderInfo,
+    within: bool,
+) {
+    padding := f32(render_info.padding)
+    font_size := f32(render_info.font_size)
+
+    mouse_within := ut.position_within_bounds(auto_cast rl.GetMousePosition(), auto_cast render_command.boundingBox)
+
+    rl.DrawRectangleRec(auto_cast render_command.boundingBox, auto_cast render_info.back_color)
+
+    active := editor_ui.active_index == input_index
+    
+    if mouse_within && within && rl.IsMouseButtonPressed(.LEFT) {
+        editor_ui.active_index = input_index
+    }
+    
+    selected_name := dropdown_input.enum_names[dropdown_input.current^]
+    buf: [64]u8
+    length := copy_from_string(buf[:], selected_name)
+    buf[length] = '\x00'
+    length += 1
+    
+    if !active {
+        rl.DrawText(
+            strings.unsafe_string_to_cstring(string(buf[:length])),
+            i32(padding + render_command.boundingBox.x),
+            i32(render_command.boundingBox.y),
+            i32(font_size),
+            auto_cast render_info.text_color,
+        )
+    }
+}
+
 render_custom_widget :: proc(
-    editor_ui: ^editorui.EditorUI, render_command: clay.RenderCommand, render_infos: RenderInfos, allocator: mem.Allocator, frame_allocator: mem.Allocator, clicked_custom_id: editorui.CustomId, dt: f32
+    editor_ui: ^editorui.EditorUI, render_command: clay.RenderCommand, render_infos: editorui.RenderInfos, allocator: mem.Allocator, frame_allocator: mem.Allocator, dt: f32
 ) {
     custom_id := transmute(editorui.CustomId)render_command.renderData.custom.customData
 
@@ -342,10 +206,31 @@ render_custom_widget :: proc(
         unreachable()
     case .Gameview:
         editor_ui.update_game.fn(editor_ui.update_game.data, auto_cast render_command.boundingBox, dt)
+    case .DropdownFloatingMenu:
+        input_index: ed.InputIndex = custom_id.value.input_index
+        input := editor_ui.panel_pool.inputs[input_index]
+        
+        clay_id := clay.ID("widget-dropdown", auto_cast input_index)
+        within := clay.PointerOver(clay_id)
+
+        #partial switch input_data in input {
+        case ed.Dropdown(u8):
+            render_dropdown_floating_menu(editor_ui, render_command, input_data, input_index, render_infos.dropdown, within)
+        case ed.Dropdown(u16):
+            render_dropdown_floating_menu(editor_ui, render_command, input_data, input_index, render_infos.dropdown, within)
+        case ed.Dropdown(u32):
+            render_dropdown_floating_menu(editor_ui, render_command, input_data, input_index, render_infos.dropdown, within)
+        case ed.Dropdown(u64):
+            render_dropdown_floating_menu(editor_ui, render_command, input_data, input_index, render_infos.dropdown, within)
+        case:
+            unreachable()
+        }
     case .InputIndex:
         input_index: ed.InputIndex = custom_id.value.input_index
         input := editor_ui.panel_pool.inputs[input_index]
-        within := input_index == clicked_custom_id.value.input_index
+
+        clay_id := clay.ID("widget", auto_cast input_index)
+        within := clay.PointerOver(clay_id)
 
         switch input_data in input {
         case ed.Dropdown(u8):
@@ -401,17 +286,6 @@ render_custom_widget :: proc(
     }
 }
 
-TextInputRenderInfo :: struct {
-    font_size: u8,
-    padding: u8,
-    caret_width: u8,
-    caret_color: ut.Color,
-    back_color: ut.Color,
-    border_color: ut.Color,
-    placeholder_text_color: ut.Color,
-    text_color: ut.Color,
-}
-
 TextInputType :: union {
     ed.TextInputString,
     ed.NumberInput,
@@ -427,7 +301,7 @@ render_text_input :: proc(
     commit: proc (rawptr, string),
 
     input_index: ed.InputIndex,
-    render_info: TextInputRenderInfo,
+    render_info: editorui.TextInputRenderInfo,
     allocator: mem.Allocator,
     frame_allocator: mem.Allocator,
 
@@ -518,7 +392,7 @@ render_text_input :: proc(
         }
     }
 
-    if (rl.IsKeyPressed(.ESCAPE) || within && rl.IsMouseButtonPressed(.LEFT) && !mouse_within) && active {
+    if (rl.IsKeyPressed(.ESCAPE) || rl.IsMouseButtonPressed(.LEFT) && !mouse_within) && active {
         editor_ui.active_index = max(ed.InputIndex)
         active_data := &editor_ui.active_data.(editorui.TextInput)
         commit(commit_user_ptr, string(active_data.buf[0:active_data.buf_len]))
@@ -565,24 +439,13 @@ render_text_input :: proc(
     )
 }
 
-SliderRenderInfo :: struct {
-    font_size: u8,
-    bar_height: u8,
-    bar_padding_x: u8,
-    handle_size: u8,
-    back_color: ut.Color, 
-    bar_color: ut.Color, 
-    handle_color: ut.Color,
-    text_color: ut.Color,
-}
-
 render_number_input :: proc(
     editor_ui: ^editorui.EditorUI,
     render_command: clay.RenderCommand, 
     number_input: ed.NumberInput($T), 
     input_index: ed.InputIndex,
-    render_info: SliderRenderInfo,
-    text_render_info: TextInputRenderInfo,
+    render_info: editorui.SliderRenderInfo,
+    text_render_info: editorui.TextInputRenderInfo,
     allocator: mem.Allocator,
     frame_allocator: mem.Allocator,
     within: bool,
@@ -633,9 +496,8 @@ render_number_input :: proc(
         case .Slider:
             mouse_within := ut.position_within_bounds(auto_cast rl.GetMousePosition(), auto_cast render_command.boundingBox)
             active := editor_ui.active_index == input_index
-            relinquished := editor_ui.active_index == max(ed.InputIndex)
 
-            if mouse_within && within && rl.IsMouseButtonPressed(.LEFT) && relinquished {
+            if mouse_within && within && rl.IsMouseButtonPressed(.LEFT) {
                 editor_ui.active_index = input_index
             }
 

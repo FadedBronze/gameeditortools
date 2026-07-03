@@ -36,6 +36,8 @@ create_layout :: proc(
                 }, 
                 backgroundColor = editorui.color_to_clay_color(bg),
             }) {
+                label := "example"
+                editorui.render_structure_panel(editor_ui, label, &appdata.example, label)
             }
 
             if clay.UI()({ 
@@ -95,8 +97,8 @@ update :: proc(appdata: rawptr, screen_rect: ut.Bounds(f32), delta_time: f32) {
 main :: proc() { 
     editor_ui: editorui.EditorUI = editorui.create_editorui(editorui.EditorUITheme {
         font_size = 16,
-        text_color = ut.BLACK,
-        background_color = ut.WHITE,
+        text_color = ut.Color {192, 192, 192, 240},
+        background_color = ut.BLACK,
         highlight_color = ut.Color {255, 0, 0, 255}
     }, context.allocator)
     
