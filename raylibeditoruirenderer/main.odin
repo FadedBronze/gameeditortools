@@ -14,6 +14,32 @@ import "core:slice"
 import "core:fmt"
 import "base:runtime"
 
+FontKey :: struct {
+    id: u16,
+    size: u16,
+}
+FontTable :: struct {
+    id_paths : [1]cstring,
+    fonts: map[FontKey]rl.Font,
+}
+font_table: FontTable
+
+init_font_table :: proc(font_table: ^FontTable, allocator: mem.Allocator) {
+    font_table.fonts = make(map[FontKey]rl.Font, allocator)
+    font_table.id_paths[0] = "./assets/fonts/Open_Sans/static/OpenSans-Regular.ttf"
+}
+
+get_font :: proc(font_table: ^FontTable, font_id: u16, font_size: u16) -> rl.Font {
+    path := font_table.id_paths[font_id]
+    key := FontKey{ id = font_id, size = font_size }
+    font, ok := font_table.fonts[key]
+    if !ok {
+        font_table.fonts[key] = rl.LoadFontEx(path, i32(font_size), nil, 0)
+        font = font_table.fonts[key]
+    }
+    return font
+}
+
 measure_text :: proc "c" (
     text: clay.StringSlice,
     config: ^clay.TextElementConfig,
@@ -23,16 +49,48 @@ measure_text :: proc "c" (
 
     s := strings.string_from_ptr(text.chars, auto_cast text.length)
     cs := strings.clone_to_cstring(s, context.temp_allocator)
+	font := get_font(&font_table, config.fontId, config.fontSize)
 
     return {
-        width = f32(rl.MeasureText(cs, auto_cast config.fontSize)),
+        width = f32(rl.MeasureTextEx(font, cs, auto_cast config.fontSize, auto_cast config.letterSpacing).x),
         height = f32(config.fontSize),
     }
 }
 
-clay_to_raylib_color :: proc(color: clay.Color) -> rl.Color {
-    return {u8(color.r), u8(color.g), u8(color.b), u8(color.a)}
-}
+//measure_text :: proc "c" (text: clay.StringSlice, config: ^clay.TextElementConfig, userData: rawptr) -> clay.Dimensions {
+//    context = runtime.default_context()
+//	line_width: f32 = 0
+//
+//	font := get_font(&font_table, config.fontId, config.fontSize)
+//	text_str := string(text.chars[:text.length])
+//
+//	for i in 0 ..< len(text_str) {
+//		glyph_index := text_str[i] - 32
+//
+//		glyph := font.glyphs[glyph_index]
+//
+//		if glyph.advanceX != 0 {
+//			line_width += f32(glyph.advanceX)
+//		} else {
+//			//line_width += font.recs[glyph_index].width + f32(font.glyphs[glyph_index].offsetX)
+//		}
+//	}
+//
+//    //if text_str[len(text_str)-1] == ' ' {
+//	//	glyph_index := text_str[len(text_str)-1] - 32
+//	//	line_width -= font.recs[glyph_index].width
+//    //}
+//
+//	scaleFactor := f32(config.fontSize) / f32(font.baseSize)
+//
+//	// Note:
+//	//   I'd expect this to be `len(text_str) - 1`,
+//	//   but that seems to be one letterSpacing too small
+//	//   maybe that's a raylib bug, maybe that's Clay?
+//	total_spacing := f32(len(text_str)-1) * f32(config.letterSpacing)
+//
+//	return {width = line_width * scaleFactor + total_spacing, height = f32(config.fontSize)}
+//}
 
 clay_raylib_render :: proc(editor_ui: ^editorui.EditorUI, elements: clay.ClayArray(clay.RenderCommand), allocator: mem.Allocator, frame_allocator: mem.Allocator, dt: f32) {  
     slx := slice.from_ptr(elements.internalArray, auto_cast elements.length)
@@ -45,7 +103,7 @@ clay_raylib_render :: proc(editor_ui: ^editorui.EditorUI, elements: clay.ClayArr
             case .None:
             case .Rectangle:
                 color := render_command.renderData.rectangle.backgroundColor
-                rl.DrawRectangleRec(auto_cast render_command.boundingBox, clay_to_raylib_color(color))
+                rl.DrawRectangleRec(auto_cast render_command.boundingBox, auto_cast ut.f32list_to_color(color))
             case .Border:
                 //color := render_command.renderData.border.color
                 //rl.DrawRectangleLines(auto_cast render_command.boundingBox, clay_to_raylib_color(color))
@@ -56,14 +114,19 @@ clay_raylib_render :: proc(editor_ui: ^editorui.EditorUI, elements: clay.ClayArr
                 cs := strings.clone_to_cstring(s, context.temp_allocator)
                 box := render_command.boundingBox
 
-                rl.DrawText(cs, auto_cast box.x, auto_cast box.y, auto_cast text_command.fontSize, clay_to_raylib_color(text_command.textColor))
+                rl.DrawTextEx(
+                    get_font(&font_table, text_command.fontId, text_command.fontSize), 
+                    cs, 
+                    {auto_cast box.x, auto_cast box.y},
+                    auto_cast text_command.fontSize, 
+                    auto_cast text_command.letterSpacing, 
+                    auto_cast ut.f32list_to_color(auto_cast text_command.textColor)
+                )
             case .Custom:
                 //fmt.println(render_command.renderData.custom.customData)
                 //TODO false
                 render_custom_widget(editor_ui, render_command, editor_ui.render_infos, allocator, frame_allocator, dt)
-                fmt.println("ran!")
             case .ScissorStart:
-                fmt.println("ran?")
                 rl.BeginScissorMode(
                     i32(render_command.boundingBox.x),
                     i32(render_command.boundingBox.y),
@@ -71,7 +134,6 @@ clay_raylib_render :: proc(editor_ui: ^editorui.EditorUI, elements: clay.ClayArr
                     i32(render_command.boundingBox.height)
                 )
             case .ScissorEnd:
-                fmt.println("ran.")
                 rl.EndScissorMode()
             case .Image:
                 unimplemented()
@@ -142,11 +204,12 @@ render_dropdown_floating_menu :: proc(
             }
         }
 
-        rl.DrawText(
+        rl.DrawTextEx(
+            get_font(&font_table, 0, u16(editor_ui.theme.font_size)), 
             strings.unsafe_string_to_cstring(string(buf[:length])),
-            i32(padding + render_command.boundingBox.x),
-            i32(render_command.boundingBox.y + offset + f32(render_info.inner_padding)),
-            i32(font_size),
+            { f32(padding + render_command.boundingBox.x), f32(render_command.boundingBox.y + offset + f32(render_info.inner_padding)) },
+            f32(font_size),
+            f32(editor_ui.theme.letter_spacing),
             auto_cast render_info.text_color,
         )
     }
@@ -157,11 +220,13 @@ render_dropdown_floating_menu :: proc(
     buf[length] = '\x00'
     length += 1
 
-    rl.DrawText(
+    rl.DrawTextEx(
+        get_font(&font_table, 0, u16(editor_ui.theme.font_size)), 
         strings.unsafe_string_to_cstring(string(buf[:length])),
-        i32(padding + render_command.boundingBox.x),
-        i32(render_command.boundingBox.y),
-        i32(font_size),
+        {f32(padding + render_command.boundingBox.x),
+        f32(render_command.boundingBox.y)},
+        f32(font_size),
+        f32(editor_ui.theme.letter_spacing),
         auto_cast render_info.text_color,
     )
 }
@@ -194,11 +259,13 @@ render_dropdown_input :: proc(
     length += 1
     
     if !active {
-        rl.DrawText(
+        rl.DrawTextEx(
+            get_font(&font_table, 0, u16(editor_ui.theme.font_size)), 
             strings.unsafe_string_to_cstring(string(buf[:length])),
-            i32(padding + render_command.boundingBox.x),
-            i32(render_command.boundingBox.y),
-            i32(font_size),
+            {f32(padding + render_command.boundingBox.x),
+            f32(render_command.boundingBox.y)},
+            f32(font_size),
+            f32(editor_ui.theme.letter_spacing),
             auto_cast render_info.text_color,
         )
     }
@@ -213,7 +280,28 @@ render_custom_widget :: proc(
     case .Null:
         unreachable()
     case .Gameview:
-        editor_ui.update_game.fn(editor_ui.update_game.data, auto_cast render_command.boundingBox, dt)
+        if clay.UI()({ 
+            layout = {
+                sizing = {
+                    width = clay.SizingFixed(render_command.boundingBox.width),
+                    height = clay.SizingFixed(render_command.boundingBox.height),
+                }
+            },
+            floating = {
+                attachTo = .Root,
+                offset = { 
+                    render_command.boundingBox.x,
+                    render_command.boundingBox.y,
+                },
+            },
+            clip = {
+                horizontal = true,
+                vertical = true,
+            }
+        }) {
+            editor_ui.render_game.fn(editor_ui.render_game.data, auto_cast render_command.boundingBox)
+            clay.SetCurrentContext(editor_ui.editor_context)
+        }
     case .DropdownFloatingMenu:
         input_index: ed.InputIndex = custom_id.value.input_index
         input := editor_ui.panel_pool.inputs[input_index]
@@ -426,7 +514,8 @@ render_text_input :: proc(
         text_color = render_info.text_color
     }
     
-    text_width := rl.MeasureText(render_string, i32(render_info.font_size))
+    font := get_font(&font_table, 0, u16(editor_ui.theme.font_size))
+    text_width: i32 = auto_cast rl.MeasureTextEx(font, render_string, f32(render_info.font_size), f32(editor_ui.theme.letter_spacing)).x
 
     if active {
         rl.DrawRectangle(
@@ -438,13 +527,19 @@ render_text_input :: proc(
         )
     }
 
-    rl.DrawText(
+    rl.DrawTextEx(
+        font, 
         render_string, 
-        i32(padding + render_command.boundingBox.x), 
-        i32(render_command.boundingBox.y), 
-        i32(render_info.font_size), 
+        {f32(padding + render_command.boundingBox.x), 
+        f32(render_command.boundingBox.y)}, 
+        f32(render_info.font_size), 
+        f32(editor_ui.theme.letter_spacing), 
         auto_cast text_color
     )
+}
+
+scale_down_font_size :: proc(size: u16) -> u16 {
+    return u16(f32(size) / 1.2)
 }
 
 render_number_input :: proc(
@@ -549,32 +644,36 @@ render_number_input :: proc(
             min_text_buf: [16]u8
             min_text_cstring := fmt_number(min_text_buf[:], number_input.min)
             
-            shrunk_font_size: i32 = auto_cast (render_info.font_size*3)/4
+            scaled_size: f32 = auto_cast scale_down_font_size(auto_cast editor_ui.theme.font_size)
 
             min_text_x := f32(render_command.boundingBox.x+bar_padding_x)
+
+            font := get_font(&font_table, 0, u16(scaled_size))
             
-            min_text_width: i32 = rl.MeasureText(min_text_cstring, shrunk_font_size)
+            min_text_width: i32 = auto_cast rl.MeasureTextEx(font, min_text_cstring, f32(scaled_size), f32(editor_ui.theme.letter_spacing)).x
             
-            rl.DrawText(
+            rl.DrawTextEx(
+                font,
                 min_text_cstring, 
-                auto_cast min_text_x, 
-                auto_cast (render_command.boundingBox.y+f32(render_info.font_size)),
-                auto_cast (render_info.font_size*3)/4, 
+                {auto_cast min_text_x, auto_cast (render_command.boundingBox.y+f32(render_info.font_size))},
+                auto_cast scaled_size,
+                f32(editor_ui.theme.letter_spacing),
                 auto_cast render_info.text_color
             )
 
             max_text_buf: [16]u8
             max_text_cstring := fmt_number(max_text_buf[:], number_input.max)
             
-            max_text_width := rl.MeasureText(max_text_cstring, shrunk_font_size)
+            max_text_width: i32 = auto_cast rl.MeasureTextEx(font, max_text_cstring, f32(scaled_size), f32(editor_ui.theme.letter_spacing)).x
 
             max_text_x := f32(render_command.boundingBox.x+render_command.boundingBox.width-f32(bar_padding_x)-f32(max_text_width))
  
-            rl.DrawText(
+            rl.DrawTextEx(
+                get_font(&font_table, 0, u16(scaled_size)),
                 max_text_cstring, 
-                auto_cast max_text_x, 
-                auto_cast (render_command.boundingBox.y+f32(render_info.font_size)),
-                shrunk_font_size, 
+                {auto_cast max_text_x, auto_cast (render_command.boundingBox.y+f32(render_info.font_size))},
+                scaled_size, 
+                f32(editor_ui.theme.letter_spacing),
                 auto_cast render_info.text_color
             )
 
@@ -583,15 +682,19 @@ render_number_input :: proc(
             text_buf: [16]u8
             text_cstring := fmt_number(text_buf[:], T(current))
             
-            text_width := rl.MeasureText(text_cstring, shrunk_font_size)
+            text_width: i32 = auto_cast rl.MeasureTextEx(font, text_cstring, f32(scaled_size), f32(editor_ui.theme.letter_spacing)).x
 
             text_x: i32 = i32(render_command.boundingBox.x+f32(bar_padding_x)+mouse_ratio_x*handle_region-f32(text_width)/2+f32(handle_size)/2)
             
-            rl.DrawText(
+            rl.DrawTextEx(
+                get_font(&font_table, 0, u16(scaled_size)),
                 text_cstring, 
-                min(i32(max_text_x)-i32(bar_padding_x)-max_text_width, max(i32(min_text_x)+i32(bar_padding_x)+min_text_width, text_x)),
-                auto_cast (render_command.boundingBox.y+f32(render_info.font_size)),
-                auto_cast (render_info.font_size*3)/4, 
+                {
+                    f32(min(i32(max_text_x)-i32(bar_padding_x)-max_text_width, max(i32(min_text_x)+i32(bar_padding_x)+min_text_width, text_x))),
+                    auto_cast (render_command.boundingBox.y+f32(render_info.font_size))
+                },
+                scaled_size,
+                f32(editor_ui.theme.letter_spacing),
                 auto_cast render_info.handle_color
             )
         case .Text:
@@ -632,19 +735,23 @@ render_editor : editorui.RenderFunction = proc(
 ) {
     rl.InitWindow(1080, 720, "yay")
     rl.SetWindowState({.WINDOW_RESIZABLE})
+    //TODO
+    init_font_table(&font_table, context.allocator)
 
     for !rl.WindowShouldClose() {
         dt := rl.GetFrameTime()
-
         mouse_position := rl.GetMousePosition()
         mouse_down := rl.IsMouseButtonDown(.LEFT)
+
+        clay.SetCurrentContext(editor_ui.editor_context)
         clay.SetPointerState(mouse_position, mouse_down)
         clay.SetLayoutDimensions({auto_cast rl.GetScreenWidth(), auto_cast rl.GetScreenHeight()})
+        layout := editor_ui.layout_fn(editor_ui, userdata, dt)
+        
+        editor_ui.update_game.fn(editor_ui.update_game.data, dt)
 
-        rl.BeginDrawing()
         rl.ClearBackground(auto_cast editor_ui.theme.background_color)
-        clay_raylib_render(editor_ui, editor_ui.layout_fn(editor_ui, userdata, dt), context.allocator, context.temp_allocator, dt)
-
+        clay_raylib_render(editor_ui, layout, context.allocator, context.temp_allocator, dt)
         rl.EndDrawing()
     }
 }

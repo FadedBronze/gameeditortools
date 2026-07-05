@@ -6,7 +6,10 @@ import editorui "editorui"
 import rn "raylibeditoruirenderer"
 import ut "utils"
 
+import "core:mem"
 import "core:fmt"
+import "core:slice"
+import "core:strings"
 import "base:runtime"
 
 create_layout :: proc(
@@ -34,9 +37,9 @@ create_layout :: proc(
                 layout = { 
                     sizing = { width = clay.SizingPercent(0.25), height = clay.SizingGrow({}) } 
                 }, 
-                backgroundColor = editorui.color_to_clay_color(bg),
+                backgroundColor = ut.color_to_f32list(bg),
             }) {
-                label := "example"
+                label := "Example Simulation"
                 editorui.render_structure_panel(editor_ui, label, &appdata.example, label)
             }
 
@@ -45,18 +48,11 @@ create_layout :: proc(
                     sizing = { width = clay.SizingPercent(0.5), height = clay.SizingGrow({}) },
                     layoutDirection = .TopToBottom,
                 }, 
-                backgroundColor = editorui.color_to_clay_color(bg),
+                backgroundColor = ut.color_to_f32list(bg),
             }) {
                 if clay.UI()({ 
                     layout = { 
-                        sizing = { width = clay.SizingPercent(1), height = clay.SizingPercent(0.5) } 
-                    }, 
-                }) {
-                    editorui.gameview()
-                }
-                if clay.UI()({ 
-                    layout = { 
-                        sizing = { width = clay.SizingPercent(1), height = clay.SizingPercent(0.5) } 
+                        sizing = { width = clay.SizingPercent(1), height = clay.SizingPercent(1) } 
                     }, 
                 }) {
                     editorui.gameview()
@@ -67,9 +63,9 @@ create_layout :: proc(
                 layout = { 
                     sizing = { width = clay.SizingPercent(0.25), height = clay.SizingGrow({}) } 
                 }, 
-                backgroundColor = editorui.color_to_clay_color(bg),
+                backgroundColor = ut.color_to_f32list(bg),
             }) {
-                label := "theme"
+                label := "Theme"
                 editorui.render_structure_panel(editor_ui, label, &editor_ui.theme, label)
             }
         }
@@ -78,57 +74,64 @@ create_layout :: proc(
     return clay.EndLayout(auto_cast delta_time)
 }
 
-ExamplePhysics :: struct {
-    pause: bool "toggle",
-    speed: f32 "slider min(-0.69) max(0.69)",
-}
+clay_renderer :: proc(elements: clay.ClayArray(clay.RenderCommand)) {  
+    slx := slice.from_ptr(elements.internalArray, auto_cast elements.length)
 
-ExampleColor :: enum {
-    Red,
-    Orange,
-    Blue,
-}
+    for element in slx {
+        render_command: clay.RenderCommand = element;
+        //fmt.println(render_command.zIndex)
 
-Example :: struct {
-    name: string "text placeholder(name)",
-    color: ExampleColor "dropdown",
-    physics: ExamplePhysics "group",
-}
+        switch render_command.commandType {
+            case .None:
+            case .Rectangle:
+                color := render_command.renderData.rectangle.backgroundColor
+                rl.DrawRectangleRec(auto_cast render_command.boundingBox, auto_cast ut.f32list_to_color(color))
+            case .Border:
+                //color := render_command.renderData.border.color
+                //rl.DrawRectangleLines(auto_cast render_command.boundingBox, clay_to_raylib_color(color))
+            case .Text:
+                text_command := render_command.renderData.text
+                text := text_command.stringContents
+                s := strings.string_from_ptr(text.chars, auto_cast text.length)
+                cs := strings.clone_to_cstring(s, context.temp_allocator)
+                box := render_command.boundingBox
 
-AppData :: struct {
-    example: Example,
-}
-
-offset: f32 = 0
-update :: proc(appdata: rawptr, screen_rect: ut.Bounds(f32), delta_time: f32) {
-    appdata: ^AppData = cast(^AppData)appdata
-
-    if !appdata.example.physics.pause {
-        offset += appdata.example.physics.speed
+                rl.DrawTextEx(
+                    rn.get_font(&rn.font_table, 0, text_command.fontSize),
+                    cs, 
+                    {auto_cast box.x, auto_cast box.y},
+                    auto_cast text_command.fontSize, 
+                    auto_cast text_command.letterSpacing, 
+                    auto_cast ut.f32list_to_color(auto_cast text_command.textColor)
+                )
+            case .Custom:
+            case .ScissorStart:
+                rl.BeginScissorMode(
+                    i32(render_command.boundingBox.x),
+                    i32(render_command.boundingBox.y),
+                    i32(render_command.boundingBox.width),
+                    i32(render_command.boundingBox.height)
+                )
+            case .ScissorEnd:
+                rl.EndScissorMode()
+            case .Image:
+                unimplemented()
+            case .OverlayColorStart:
+                unimplemented()
+            case .OverlayColorEnd:
+                unimplemented()
+        }
     }
+}
 
-    color: ut.Color
-
-    switch appdata.example.color {
-        case .Red:
-            color = ut.Color{255, 0, 0, 255}
-        case .Orange:
-            color = ut.Color{255, 125, 0, 255}
-        case .Blue:
-            color = ut.Color{0, 125, 255, 255}
-    }
-
-    rl.DrawRectangleRec(rl.Rectangle{
-        x = f32(int(screen_rect.width/2+50 + offset) % int(screen_rect.width+100))+screen_rect.x-100,
-        y = screen_rect.y+screen_rect.height/2-50,
-        width = 100,
-        height = 100,
-    }, auto_cast color)
+error_handler :: proc "c" (errorData: clay.ErrorData) {
+    //fmt.println(errorData)
 }
 
 main :: proc() { 
     editor_ui: editorui.EditorUI = editorui.create_editorui(editorui.EditorUITheme {
         font_size = 16,
+        letter_spacing = 1,
         text_color = ut.Color {192, 192, 192, 240},
         background_color = ut.BLACK,
         highlight_color = ut.Color {255, 0, 0, 255}
@@ -138,14 +141,17 @@ main :: proc() {
         return create_layout(editor_ui, cast(^AppData)appdata, rl.GetFrameTime())
     }
     
-    appdata := AppData {
-        example = Example {}
-    }    
+    appdata: AppData
+    initialize_app(&appdata, context.allocator)
     
-    editorui.initialize_fn_ptrs(&editor_ui, rn.measure_text, layout, rn.render_editor, {
-        fn = update,
-        data = &appdata
-    })
+    editorui.initialize_fn_ptrs(
+        &editor_ui, 
+        rn.measure_text, 
+        layout, 
+        rn.render_editor, 
+        { fn = render, data = &appdata },
+        { fn = update, data = &appdata }
+    )
 
     editorui.run(&editor_ui, &appdata)
 }

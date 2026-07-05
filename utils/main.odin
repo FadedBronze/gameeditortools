@@ -73,3 +73,16 @@ position_within_bounds :: proc(position: [2]$T, bounds: Bounds(T)) -> bool {
     within_y := bounds.y < position.y && bounds.y + bounds.height > position.y
     return within_x && within_y
 }
+
+f32list_to_color :: proc(color: [4]f32) -> Color {
+    return {u8(color.r), u8(color.g), u8(color.b), u8(color.a)}
+}
+
+color_to_f32list :: proc(color: Color) -> [4]f32 {
+    return {
+        f32(color.r),
+        f32(color.g),
+        f32(color.b),
+        f32(color.a),
+    }
+}

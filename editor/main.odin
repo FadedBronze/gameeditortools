@@ -247,15 +247,15 @@ create_panel_recurse_struct_fields :: proc(
                 case:
                     unimplemented()
                 }
-            }
-            
-            append(groups, Group {
-                type = .Component,
-                input = InputIndex(len(inputs)-1),
-                label = name,
-            })
-            new_size := GroupIndex(len(groups)-1)
-            parent.subgroup[parent_idx] = new_size
+
+                append(groups, Group {
+                    type = .Component,
+                    input = InputIndex(len(inputs)-1),
+                    label = name,
+                })
+                new_size := GroupIndex(len(groups)-1)
+                parent.subgroup[parent_idx] = new_size
+            } 
         case rn.Type_Info_Float:
             assert(info.endianness == .Platform)
             

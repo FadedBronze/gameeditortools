@@ -69,6 +69,7 @@ ActiveWidgetData :: union {
 }
 
 EditorUITheme :: struct {
+    letter_spacing: u8 "slider min(0) max(5)",
     font_size: u8 "slider min(10) max(30)",
     text_color: ut.Color "slider",
     background_color: ut.Color "slider",
@@ -87,6 +88,9 @@ EditorUI :: struct {
     layout_fn: LayoutFunction,
     render_fn: RenderFunction,
     update_game: GameUpdateCallback,
+    render_game: GameRenderCallback,
+
+    editor_context: ^clay.Context,
 }
 
 IndexType :: enum u16 {
@@ -106,21 +110,17 @@ CustomId :: struct {
     value: IndexValue
 }
 
-color_to_clay_color :: proc(color: ut.Color) -> clay.Color {
-    return {
-        f32(color.r),
-        f32(color.g),
-        f32(color.b),
-        f32(color.a),
-    }
-}
-
 error_handler :: proc "c" (errorData: clay.ErrorData) {
     //fmt.println(errorData)
 }
 
 GameUpdateCallback :: struct {
-    fn: proc(rawptr, ut.Bounds(f32), f32),
+    fn: proc(rawptr, f32),
+    data: rawptr,
+}
+
+GameRenderCallback :: struct {
+    fn: proc(rawptr, ut.Bounds(f32)),
     data: rawptr,
 }
 
@@ -139,10 +139,12 @@ initialize_fn_ptrs :: proc(
     measure_text: MeasureTextFunction,
     layout_fn: LayoutFunction,
     render_fn: RenderFunction,
+    game_render_fn: GameRenderCallback,
     update_fn: GameUpdateCallback,
 ) {
     editor_ui.layout_fn = layout_fn
     editor_ui.render_fn = render_fn
+    editor_ui.render_game = game_render_fn
     editor_ui.update_game = update_fn
     clay.SetMeasureTextFunction(measure_text, nil)
 }
@@ -193,17 +195,18 @@ create_render_infos :: proc(theme: EditorUITheme) -> RenderInfos {
 
 create_editorui :: proc(theme: EditorUITheme, allocator: mem.Allocator) -> EditorUI {
     min_memory_size := clay.MinMemorySize()
-    memory := make([^]u8, min_memory_size, allocator)
-    arena: clay.Arena = clay.CreateArenaWithCapacityAndMemory(uint(min_memory_size), memory)
 
-    clay.Initialize(arena, {1080, 720}, { handler = error_handler })
-
+    editor_memory := make([^]u8, min_memory_size, allocator)
+    arena: clay.Arena = clay.CreateArenaWithCapacityAndMemory(uint(min_memory_size), editor_memory)
+    editor_context := clay.Initialize(arena, {1080, 720}, { handler = error_handler })
+    
     return EditorUI {
         panel_pool = ed.create_panel_pool(allocator),
         render_infos = create_render_infos(theme),
         panels = make(map[string]ed.GroupIndex, allocator),
         active_index = max(ed.InputIndex),
         theme = theme,
+        editor_context = editor_context,
     }
 }
 
@@ -228,12 +231,13 @@ render_panel_recurse :: proc(editor_ui: ^EditorUI, panel: ^ed.Group) {
                     layoutDirection = .TopToBottom,
                     padding = clay.PaddingAll(10),
                 }, 
-                backgroundColor = color_to_clay_color(ut.change_opacity(ut.get_contrasting_color(editor_ui.theme.background_color), 20)),
+                backgroundColor = auto_cast ut.color_to_f32list(ut.change_opacity(ut.get_contrasting_color(editor_ui.theme.background_color), 20)),
             }) {
                 clay.Text(panel.label, clay.TextElementConfig {
                     fontSize = u16(editor_ui.theme.font_size)*5/4,
                     wrapMode = .Words,
-                    textColor = color_to_clay_color(editor_ui.theme.text_color),
+                    letterSpacing = u16(editor_ui.theme.letter_spacing),
+                    textColor = auto_cast ut.color_to_f32list(editor_ui.theme.text_color),
                 })
 
                 if clay.UI()({ 
@@ -258,9 +262,10 @@ render_panel_recurse :: proc(editor_ui: ^EditorUI, panel: ^ed.Group) {
                 }, 
             }) {
                 clay.Text(panel.label, clay.TextElementConfig {
+                    letterSpacing = u16(editor_ui.theme.letter_spacing),
                     fontSize = u16(editor_ui.theme.font_size),
                     wrapMode = .Words,
-                    textColor = color_to_clay_color(editor_ui.theme.text_color),
+                    textColor = auto_cast ut.color_to_f32list(editor_ui.theme.text_color),
                 })
 
                 //fmt.println(panel.label)
@@ -395,6 +400,7 @@ gameview :: proc() {
         layout = { 
             sizing = { width = clay.SizingPercent(1), height = clay.SizingPercent(1) } 
         }, 
+        backgroundColor = {0, 0, 0, 255},
         clip = {
             horizontal = true,
             vertical = true,
