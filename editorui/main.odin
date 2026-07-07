@@ -73,7 +73,7 @@ EditorUITheme :: struct {
     font_size: u8 "slider min(10) max(30)",
     text_color: ut.Color "slider",
     background_color: ut.Color "slider",
-    highlight_color: ut.Color "text",
+    highlight_color: ut.Color "slider",
 }
 
 EditorUI :: struct {
@@ -100,9 +100,11 @@ IndexType :: enum u16 {
     Gameview,
 }
 
+ViewportIndex :: distinct u32
+
 IndexValue :: struct #raw_union {
     input_index: ed.InputIndex,
-    gameview_index: u32,
+    gameview_id: ViewportIndex,
 }
 
 CustomId :: struct {
@@ -120,7 +122,7 @@ GameUpdateCallback :: struct {
 }
 
 GameRenderCallback :: struct {
-    fn: proc(rawptr, ut.Bounds(f32)),
+    fn: proc(rawptr, ut.Bounds(f32), ViewportIndex),
     data: rawptr,
 }
 

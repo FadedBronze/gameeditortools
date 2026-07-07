@@ -299,7 +299,7 @@ render_custom_widget :: proc(
                 vertical = true,
             }
         }) {
-            editor_ui.render_game.fn(editor_ui.render_game.data, auto_cast render_command.boundingBox)
+            editor_ui.render_game.fn(editor_ui.render_game.data, auto_cast render_command.boundingBox, custom_id.value.gameview_id)
             clay.SetCurrentContext(editor_ui.editor_context)
         }
     case .DropdownFloatingMenu:

@@ -6,8 +6,6 @@ import editorui "editorui"
 import rn "raylibeditoruirenderer"
 import ut "utils"
 
-import "core:mem"
-import "core:fmt"
 import "core:slice"
 import "core:strings"
 import "base:runtime"
@@ -39,8 +37,6 @@ create_layout :: proc(
                 }, 
                 backgroundColor = ut.color_to_f32list(bg),
             }) {
-                label := "Example Simulation"
-                editorui.render_structure_panel(editor_ui, label, &appdata.example, label)
             }
 
             if clay.UI()({ 
