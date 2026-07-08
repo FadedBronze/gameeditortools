@@ -228,7 +228,7 @@ render_panel_recurse :: proc(editor_ui: ^EditorUI, panel: ^ed.Group) {
         case .Subgroup:
             if clay.UI()({ 
                 layout = { 
-                    sizing = { width = clay.SizingGrow({}), height = clay.SizingGrow({}) } ,
+                    sizing = { width = clay.SizingGrow({}), height = clay.SizingFit({}) } ,
                     childGap = 5,
                     layoutDirection = .TopToBottom,
                     padding = clay.PaddingAll(10),
@@ -393,9 +393,12 @@ run :: proc(editorui: ^EditorUI, data: ^$T) {
     editorui.render_fn(editorui, data)
 }
 
-gameview :: proc() {
-    custom_id := editorui.CustomId {
-        type = .Gameview
+gameview :: proc(id: ViewportIndex) {
+    custom_id := CustomId {
+        type = .Gameview,
+        value = IndexValue {
+            gameview_id = id,
+        },
     }
     
     if clay.UI()({ 

@@ -33,10 +33,16 @@ create_layout :: proc(
         }) {
             if clay.UI()({ 
                 layout = { 
-                    sizing = { width = clay.SizingPercent(0.25), height = clay.SizingGrow({}) } 
+                    sizing = { width = clay.SizingPercent(0.25), height = clay.SizingGrow({}) },
+                    layoutDirection = .TopToBottom,
+                    childGap = 5,
                 }, 
                 backgroundColor = ut.color_to_f32list(bg),
             }) {
+                label := "Viewport 1"
+                editorui.render_structure_panel(editor_ui, label, &appdata.viewports[0], label)
+                label2 := "Viewport 2"
+                editorui.render_structure_panel(editor_ui, label2, &appdata.viewports[1], label2)
             }
 
             if clay.UI()({ 
@@ -48,10 +54,18 @@ create_layout :: proc(
             }) {
                 if clay.UI()({ 
                     layout = { 
-                        sizing = { width = clay.SizingPercent(1), height = clay.SizingPercent(1) } 
+                        sizing = { width = clay.SizingPercent(1), height = clay.SizingPercent(0.5) } 
                     }, 
                 }) {
-                    editorui.gameview()
+                    editorui.gameview(0)
+                }
+
+                if clay.UI()({ 
+                    layout = { 
+                        sizing = { width = clay.SizingPercent(1), height = clay.SizingPercent(0.5) } 
+                    }, 
+                }) {
+                    editorui.gameview(1)
                 }
             }
 

@@ -6,16 +6,15 @@ import clay "clay-odin"
 import rl "vendor:raylib"
 import la "core:math/linalg"
 
+import "core:math"
 import "core:mem"
 
 WorldViewport2D :: struct {
-    // viewport transform
-    world_to_screenspace_scale: f64, 
-
+    world_to_screenspace_scale: f64 "text", 
     screen_rect: ut.Bounds(f64),
-
-    // camera transform
-    camera_transform: ut.Transform(f64),
+    camera_position: la.Vector2f64 "text",
+    camera_scale: la.Vector2f64 "text",
+    camera_rotation: f64 "slider min(0) max(6.283)",
 }
 
 Player :: struct {
@@ -23,14 +22,16 @@ Player :: struct {
 }
 
 RectangleTileGrid :: struct {
-    width: f32 "text",
-    height: f32 "text",
-    offset: rl.Vector2 "text",
+    width: f64 "text",
+    height: f64 "text",
 }
+
+RootGameObject :: struct {}
 
 GameObject :: struct {
     transform: ut.Transform(f64),
     data: union {
+        RootGameObject,
         Player,
         RectangleTileGrid,
     },
@@ -41,12 +42,21 @@ MAX_GAMEOBJECTS :: 10000
 INIT_MEMORY_BUFFER_SIZE :: 10000000
 FRAME_MEMORY_BUFFER_SIZE :: 5000
 
+ViewportDrag :: struct {
+    active: editorui.ViewportIndex,
+    mouse_start: la.Vector2f32,
+    camera_start: la.Vector2f64,
+    camera_inverse_transform_matrix: la.Matrix3f64,
+}
+
 AppData :: struct {
     delta_time: f32,
     ui_context: ^clay.Context,
     viewports: [2]WorldViewport2D,
     objects: ut.ObjectPool(GameObject),
     
+    viewport_drag: ViewportDrag,
+
     frame_buffer: []u8,
     frame_allocator: mem.Arena,
     
@@ -63,21 +73,70 @@ Sprite :: union {
     RectangleSprite
 }
 
-//render_tile_grid_lines :: proc(tilegrid: RectangleTileGrid, screen_to_world_space) {
-//}
+render_tile_grid_lines :: proc(viewport: WorldViewport2D, transform: ut.Transform(f64), tilegrid: RectangleTileGrid) { 
+    mat := get_viewport_matrix(viewport)*ut.create_matrix_from_transform(transform)
+    inverse := la.matrix3_inverse(mat)
 
-import "core:fmt"
+    bounds_worldspace := ut.apply_matrix_to_bounds(inverse, viewport.screen_rect)
+    
+    // create a big 'ol circle filled with lines
+    // but we are not trimming so its really a commically large square
+    outer_radius := math.sqrt(
+      math.pow(bounds_worldspace.width, 2) + 
+        math.pow(bounds_worldspace.height, 2)
+    ) / 2
+
+    // unrounded line counts
+    line_count_x := outer_radius*2 / tilegrid.width
+    line_count_y := outer_radius*2 / tilegrid.height
+    
+    // rounded line counts
+    lines_x := int(line_count_x/2)*2
+    lines_y := int(line_count_y/2)*2
+    
+    bounds_worldspace_offset := la.Vector2f64{bounds_worldspace.x, bounds_worldspace.y}
+
+    for i in -lines_x/2..<lines_x/2 {
+        spacing := f64(i)*tilegrid.width+bounds_worldspace.width/2-math.mod_f64(viewport.camera_position.x, tilegrid.width)
+
+        p1 := la.Vector2f64{spacing, -outer_radius*2} + bounds_worldspace_offset
+        p2 := la.Vector2f64{spacing, outer_radius*2} + bounds_worldspace_offset
+
+        p1 = ut.apply_matrix_to_point(mat, p1)
+        p2 = ut.apply_matrix_to_point(mat, p2)
+
+        rl.DrawLineEx(auto_cast p1, auto_cast p2, 1, auto_cast ut.WHITE/3)
+    }
+    
+    for i in -lines_y/2..<lines_y/2 {
+        spacing := f64(i)*tilegrid.height+bounds_worldspace.height/2-math.mod_f64(viewport.camera_position.y, tilegrid.height)
+
+        p1 := la.Vector2f64{-outer_radius*2, spacing} + bounds_worldspace_offset
+        p2 := la.Vector2f64{outer_radius*2, spacing} + bounds_worldspace_offset
+        
+        p1 = ut.apply_matrix_to_point(mat, p1)
+        p2 = ut.apply_matrix_to_point(mat, p2)
+
+        //p1 = ut.apply_matriy_to_point(mat, p1)
+        //p2 = ut.apply_matriy_to_point(mat, p2)
+
+        rl.DrawLineEx(auto_cast p1, auto_cast p2, 1, auto_cast ut.WHITE/3)
+    }
+}
 
 render_game_objects :: proc(appdata: ^AppData, viewport_index: editorui.ViewportIndex, id: ut.ObjectId=0) {
     game_object := ut.get_object(&appdata.objects, id)
 
-    viewport_transform := get_viewport_matrix(appdata.viewports[viewport_index])
+    viewport := appdata.viewports[viewport_index]
+    viewport_transform := get_viewport_matrix(viewport)
+    full_transform := la.matrix_mul(viewport_transform, ut.create_matrix_from_transform(game_object.transform))
 
     switch object_type in game_object.data {
         case Player:
-            render_sprite(appdata.viewports[viewport_index], ut.create_matrix_from_transform(game_object.transform)*viewport_transform, object_type.sprite)
+            render_sprite(full_transform, object_type.sprite)
+        case RootGameObject:
         case RectangleTileGrid:
-            unimplemented()
+            render_tile_grid_lines(viewport, game_object.transform, object_type)
     }
 
     for child_id in game_object.children {
@@ -85,7 +144,7 @@ render_game_objects :: proc(appdata: ^AppData, viewport_index: editorui.Viewport
     }
 }
 
-render_sprite :: proc(viewport: WorldViewport2D, transform_matrix: la.Matrix3x3f64, sprite: Sprite) {
+render_sprite :: proc(transform_matrix: la.Matrix3x3f64, sprite: Sprite) {
     switch sprite_type in sprite {
     case RectangleSprite:
         transformed_bounds := ut.bounds_to_bounds(f32, ut.apply_matrix(transform_matrix, sprite_type.rect))
@@ -99,11 +158,48 @@ update :: proc(appdata: rawptr, delta_time: f32) {
     appdata.delta_time = delta_time
 }
 
+drag_camera :: proc(appdata: ^AppData, index: editorui.ViewportIndex) {
+    viewport := &appdata.viewports[index]
+
+    mouse_pos := rl.GetMousePosition()
+    // needs to be replaced with pointer over from editor since ui may need to go over
+    within := ut.position_within_bounds(la.Vector2f64{f64(mouse_pos.x), f64(mouse_pos.y)}, viewport.screen_rect)
+
+    if rl.IsMouseButtonPressed(.LEFT) && within {
+        appdata.viewport_drag.mouse_start = mouse_pos
+        appdata.viewport_drag.camera_start = viewport.camera_position
+        appdata.viewport_drag.active = index
+        appdata.viewport_drag.camera_inverse_transform_matrix = la.matrix3_inverse(get_viewport_matrix(viewport^))
+    }
+
+    if rl.IsMouseButtonDown(.LEFT) && appdata.viewport_drag.active == index {
+        inverse := appdata.viewport_drag.camera_inverse_transform_matrix
+
+        start_world := ut.apply_matrix_to_point(inverse, auto_cast appdata.viewport_drag.mouse_start)
+        current_world := ut.apply_matrix_to_point(inverse, auto_cast mouse_pos)
+
+        drag_world := current_world - start_world
+
+        viewport.camera_position = appdata.viewport_drag.camera_start - drag_world
+    }
+
+    if rl.IsMouseButtonReleased(.LEFT) && appdata.viewport_drag.active == index {
+        appdata.viewport_drag.active = max(editorui.ViewportIndex)
+    }
+
+    if within {
+        viewport.camera_scale.x *= 1+f64(rl.GetMouseWheelMove() * appdata.delta_time * 100)
+        viewport.camera_scale.y *= 1+f64(rl.GetMouseWheelMove() * appdata.delta_time * 100)
+    }
+}
+
 render :: proc(appdata: rawptr, screen_rect: ut.Bounds(f32), id: editorui.ViewportIndex) {
     appdata: ^AppData = cast(^AppData)appdata
     appdata.viewports[id].screen_rect = ut.bounds_to_bounds(f64, screen_rect)
 
     render_game_objects(appdata, id)
+
+    drag_camera(appdata, id)
 
     clay.SetCurrentContext(appdata.ui_context)
     clay.BeginLayout()
@@ -117,35 +213,40 @@ add_game_object :: proc(appdata: ^AppData, parent_id: ut.ObjectId, object: GameO
 
 add_game_objects :: proc(appdata: ^AppData, parent_id: ut.ObjectId, objects: []GameObject) -> []ut.ObjectId {
     parent := ut.get_object(&appdata.objects, parent_id)
-    parent.children = make([]ut.ObjectId, len(objects), mem.arena_allocator(&appdata.init_allocator))
+
+    new_children := make([]ut.ObjectId, len(objects)+len(parent.children), mem.arena_allocator(&appdata.init_allocator))
+    copy_slice(new_children, parent.children)
 
     for object, i in objects {
         id := ut.create_object(&appdata.objects, object)
-        parent.children[i] = id
+        new_children[i+len(parent.children)] = id
     }
+
+    parent.children = new_children
 
     return parent.children
 }
 
 get_viewport_matrix :: proc(viewport: WorldViewport2D) -> la.Matrix3x3f64 {
-    camera_matrix := ut.create_matrix_from_transform(viewport.camera_transform)
+    camera_offset := ut.create_matrix(-viewport.camera_position, {1, 1}, 0)
+    camera_matrix := ut.create_matrix({0, 0}, viewport.camera_scale, viewport.camera_rotation)
     view_matrix := ut.create_matrix_from_transform(ut.Transform(f64) {
         rotation_rad = 0,
         offset = {viewport.screen_rect.x+viewport.screen_rect.width/2, viewport.screen_rect.y+viewport.screen_rect.height/2},
         scale = {viewport.world_to_screenspace_scale, viewport.world_to_screenspace_scale},
     })
 
-    return la.matrix_mul(camera_matrix, view_matrix)
+    return la.matrix_mul(view_matrix, la.matrix_mul(camera_matrix, camera_offset))
 }
 
 init_game :: proc(appdata: ^AppData) {
-    parent := add_game_object(appdata, 0, GameObject{
+    add_game_object(appdata, 0, GameObject{
         transform = ut.TRANSFORM_IDENTITY_F64,
         data = Player {
             sprite = RectangleSprite {
                 color = ut.WHITE,
                 rect = ut.Bounds(f64) {
-                    x = -1,
+                    x = -3,
                     y = -1,
                     width = 2,
                     height = 2,
@@ -153,7 +254,36 @@ init_game :: proc(appdata: ^AppData) {
             }
         }
     })
+    
+    add_game_object(appdata, 0, GameObject{
+        transform = ut.TRANSFORM_IDENTITY_F64,
+        data = Player {
+            sprite = RectangleSprite {
+                color = ut.WHITE,
+                rect = ut.Bounds(f64) {
+                    x = 1,
+                    y = -1,
+                    width = 2,
+                    height = 2,
+                }
+            }
+        }
+    })
+    
+    add_game_object(appdata, 0, GameObject{
+        transform = ut.TRANSFORM_IDENTITY_F64,
+        data = RectangleTileGrid {
+            width = 1,
+            height = 1,
+        }
+    })
+
+    for obj in appdata.objects.game_objects[:appdata.objects.next_free_game_object-1] {
+        fmt.println(obj)
+    }
 }
+
+import "core:fmt"
 
 initialize_app :: proc(appdata: ^AppData, allocator: mem.Allocator) {
     // memory
@@ -177,11 +307,11 @@ initialize_app :: proc(appdata: ^AppData, allocator: mem.Allocator) {
     appdata.viewports = {
         WorldViewport2D {
             world_to_screenspace_scale = 20,
-            camera_transform = ut.TRANSFORM_IDENTITY_F64,
+            camera_scale = {1, 1}
         },
         WorldViewport2D {
             world_to_screenspace_scale = 20,
-            camera_transform = ut.TRANSFORM_IDENTITY_F64,
+            camera_scale = {1, 1}
         },
     }
 

@@ -98,9 +98,9 @@ color_to_f32list :: proc(color: Color) -> [4]f32 {
 }
 
 Transform :: struct(T: typeid) {
-    scale: [2]T,
-    rotation_rad: T,
-    offset: [2]T,
+    scale: [2]T "text",
+    offset: [2]T "text",
+    rotation_rad: T "slider min(0) max(6.283)",
 }
 
 apply_matrix :: proc {
@@ -131,7 +131,7 @@ create_matrix_from_values :: proc(offset: la.Vector2f64, scale: la.Vector2f64, r
 }
 
 apply_matrix_to_point :: proc(a_mat: la.Matrix3f64, b: la.Vector2f64) -> la.Vector2f64 {
-    return la.matrix_mul_vector(a_mat, la.Vector3f64{b.x, b.y, 0}).xy
+    return la.matrix_mul_vector(a_mat, la.Vector3f64{b.x, b.y, 1}).xy
 }
 
 apply_matrix_to_bounds :: proc(mat: la.Matrix3f64, b: Bounds(f64)) -> Bounds(f64) {
@@ -140,9 +140,6 @@ apply_matrix_to_bounds :: proc(mat: la.Matrix3f64, b: Bounds(f64)) -> Bounds(f64
 
     p1t := la.matrix_mul_vector(mat, p1)
     p2t := la.matrix_mul_vector(mat, p2)
-
-    fmt.println(mat, p1t, p1)
-    fmt.println(mat, p2t, p2)
 
     return Bounds(f64) {
         x = p1t.x,
