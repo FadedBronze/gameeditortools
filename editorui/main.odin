@@ -80,8 +80,8 @@ EditorUITheme :: struct {
 }
 
 ActiveInfo :: struct {
-    active_index: ed.InputIndex,
-    active_data: editorui.ActiveWidgetData,
+    active_id: CustomId,
+    active_data: ActiveWidgetData,
 }
 
 EditorUI :: struct {
@@ -203,6 +203,19 @@ create_render_infos :: proc(theme: EditorUITheme) -> RenderInfos {
     return render_infos
 }
 
+custom_input_id :: proc(input_index: ed.InputIndex) -> CustomId {
+    return CustomId {
+        type = .InputIndex,
+        value = {
+            input_index = input_index,
+        },
+    }
+}
+
+custom_is_input :: proc(custom_id: CustomId, input_index: ed.InputIndex) -> bool {
+    return custom_id.type == .InputIndex && custom_id.value.input_index == input_index
+}
+
 create_editorui :: proc(theme: EditorUITheme, allocator: mem.Allocator) -> EditorUI {
     min_memory_size := clay.MinMemorySize()
 
@@ -214,7 +227,7 @@ create_editorui :: proc(theme: EditorUITheme, allocator: mem.Allocator) -> Edito
         panel_pool = ed.create_panel_pool(allocator),
         render_infos = create_render_infos(theme),
         panels = make(map[string]ed.GroupIndex, allocator),
-        active_index = max(ed.InputIndex),
+        active_id = custom_input_id(max(ed.InputIndex)),
         theme = theme,
         editor_context = editor_context,
     }
@@ -379,7 +392,7 @@ custom_component :: proc(editor_ui: ^EditorUI, widget: ed.InputIndex) {
         },
         custom = {customData = transmute(rawptr)(custom_id)}
     }) {
-        if editor_ui.active_index == widget {
+        if custom_is_input(editor_ui.active_id, widget) {
             #partial switch v in input {
                 case ed.Dropdown(u8):
                     height := calculate_dropdown_height(v, editor_ui.theme, editor_ui.render_infos.dropdown)

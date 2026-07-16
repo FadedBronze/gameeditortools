@@ -166,12 +166,12 @@ render_dropdown_floating_menu :: proc(
     }
 
     mouse_within := ut.position_within_bounds(auto_cast rl.GetMousePosition(), auto_cast render_command.boundingBox)
-    active := editor_ui.active_index == input_index
+    active := editorui.custom_is_input(editor_ui.active_id, input_index)
 
     rl.DrawRectangleRec(auto_cast render_command.boundingBox, auto_cast render_info.back_color)
     
     if !mouse_within && rl.IsMouseButtonPressed(.LEFT) && active {
-        editor_ui.active_index = max(ed.InputIndex)
+        editor_ui.active_id = editorui.custom_input_id(max(ed.InputIndex))
     }
     
     rl.DrawRectangleRec(auto_cast render_command.boundingBox, auto_cast render_info.back_color)
@@ -201,7 +201,7 @@ render_dropdown_floating_menu :: proc(
 
             if rl.IsMouseButtonDown(.LEFT) {
                 dropdown_input.current^ = T(value)
-                editor_ui.active_index = max(ed.InputIndex)
+                editor_ui.active_id = editorui.custom_input_id(max(ed.InputIndex))
             }
         }
 
@@ -247,10 +247,10 @@ render_dropdown_input :: proc(
 
     rl.DrawRectangleRec(auto_cast render_command.boundingBox, auto_cast render_info.back_color)
 
-    active := editor_ui.active_index == input_index
+    active := editorui.custom_is_input(editor_ui.active_id, input_index)
     
     if mouse_within && within && rl.IsMouseButtonPressed(.LEFT) {
-        editor_ui.active_index = input_index
+        editor_ui.active_id = editorui.custom_input_id(input_index)
     }
     
     selected_name := dropdown_input.enum_names[dropdown_input.current^]
@@ -315,7 +315,7 @@ render_multi_dropdown_input :: proc(
             search_string = new_str,
             selected = 0,
         }
-        ui.active_index = input_index
+        ui.active_id = editorui.custom_input_id(input_index)
     }
 }
 
@@ -458,7 +458,7 @@ render_text_input :: proc(
 ) {
     mouse_within := ut.position_within_bounds(auto_cast rl.GetMousePosition(), auto_cast bounding_box)
     rl.DrawRectangleRec(auto_cast bounding_box, auto_cast render_info.back_color)
-    active := ui.active_index == input_index
+    active := editorui.custom_is_input(ui.active_id, input_index)
     padding := f32(render_info.padding)
 
     if active {
@@ -483,7 +483,7 @@ render_text_input :: proc(
         }
 
         ui.active_data = active_data
-        ui.active_index = input_index
+        ui.active_id = editorui.custom_input_id(input_index)
     }
 
     //TODOs: 
@@ -532,7 +532,7 @@ render_text_input :: proc(
                     active_data.buf[active_data.buf_len-1] = '\x00'
                 }
             case .ENTER:
-                ui.active_index = max(ed.InputIndex)
+                ui.active_id = editorui.custom_input_id(max(ed.InputIndex))
                 active_data := &ui.active_data.(editorui.TextInput)
                 commit(commit_user_ptr, string(active_data.buf[0:active_data.buf_len]))
             }
@@ -542,7 +542,7 @@ render_text_input :: proc(
     }
 
     if (rl.IsKeyPressed(.ESCAPE) || rl.IsMouseButtonPressed(.LEFT) && !mouse_within) && active {
-        ui.active_index = max(ed.InputIndex)
+        ui.active_id = editorui.custom_input_id(max(ed.InputIndex))
         active_data := &ui.active_data.(editorui.TextInput)
         commit(commit_user_ptr, string(active_data.buf[0:active_data.buf_len]))
     }
@@ -651,10 +651,10 @@ render_number_input :: proc(
     switch number_input.type {
         case .Slider:
             mouse_within := ut.position_within_bounds(auto_cast rl.GetMousePosition(), auto_cast render_command.boundingBox)
-            active := editor_ui.active_index == input_index
+            active := editorui.custom_is_input(editor_ui.active_id, input_index)
 
             if mouse_within && within && rl.IsMouseButtonPressed(.LEFT) {
-                editor_ui.active_index = input_index
+                editor_ui.active_id = editorui.custom_input_id(input_index)
             }
 
             rl.DrawRectangleRec(auto_cast render_command.boundingBox, auto_cast render_info.back_color)
@@ -677,7 +677,7 @@ render_number_input :: proc(
             handle_region := render_command.boundingBox.width-bar_padding_x*2-handle_size
             
             if active && rl.IsMouseButtonReleased(.LEFT) {
-                editor_ui.active_index = max(ed.InputIndex)
+                editor_ui.active_id = editorui.custom_input_id(max(ed.InputIndex))
                 number_input.current^ = auto_cast ((range * mouse_ratio_x)+f32(number_input.min))
             }
 
