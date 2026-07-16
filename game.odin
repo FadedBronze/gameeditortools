@@ -5,6 +5,7 @@ import ut "utils"
 import clay "clay-odin"
 import rl "vendor:raylib"
 import la "core:math/linalg"
+import "core:sort"
 
 import "core:math"
 import "core:mem"
@@ -21,15 +22,28 @@ Player :: struct {
     sprite: Sprite,
 }
 
+TileTypeIndex :: distinct u32
+
+TileType :: struct {
+    sprite: Sprite,
+}
+
 RectangleTileGrid :: struct {
     width: f64 "text",
     height: f64 "text",
+    x: u16,
+    y: u16,
+    columns: u16,
+    rows: u16,
+    tile_types: []TileType,
+    tiles: []TileTypeIndex,
 }
 
 RootGameObject :: struct {}
 
 GameObject :: struct {
     transform: ut.Transform(f64),
+    z_index: u16,
     data: union {
         RootGameObject,
         Player,
@@ -49,6 +63,29 @@ ViewportDrag :: struct {
     camera_inverse_transform_matrix: la.Matrix3f64,
 }
 
+DrawCallback :: struct {
+    z_index: u16,
+    fn: proc (param: CallbackParams),
+    params: CallbackParams,
+}
+
+CallbackParams :: union {
+    RenderSprite,
+    RenderTileGridLines,
+    RenderTileGridCells,
+}
+
+EditorSettings :: struct {
+    open_views: bit_set[enum {
+        WorldViewports,    
+        ActiveToolSelector,
+    }] "dropdown",
+    //active_tool: enum {
+    //    CameraControl,
+    //    TileBrush,
+    //} "dropdown",
+}
+
 AppData :: struct {
     delta_time: f32,
     ui_context: ^clay.Context,
@@ -62,6 +99,11 @@ AppData :: struct {
     
     init_buffer: []u8,
     init_allocator: mem.Arena,
+
+    draw_callbacks: []DrawCallback,
+    draw_callback_next_free: u32,
+
+    editor_settings: EditorSettings,
 }
 
 RectangleSprite :: struct {
@@ -73,11 +115,37 @@ Sprite :: union {
     RectangleSprite
 }
 
-render_tile_grid_lines :: proc(viewport: WorldViewport2D, transform: ut.Transform(f64), tilegrid: RectangleTileGrid) { 
-    mat := get_viewport_matrix(viewport)*ut.create_matrix_from_transform(transform)
-    inverse := la.matrix3_inverse(mat)
+RenderTileGridCells :: struct {
+    viewport: WorldViewport2D, 
+    transform: la.Matrix3f64, 
+    tilegrid: RectangleTileGrid
+}
 
-    bounds_worldspace := ut.apply_matrix_to_bounds(inverse, viewport.screen_rect)
+render_tile_grid_cells :: proc(params: CallbackParams) {
+    params := params.(RenderTileGridCells)
+
+    for y in 0..<params.tilegrid.rows {
+        for x in 0..<params.tilegrid.columns {
+            tile_type := params.tilegrid.tiles[y * params.tilegrid.columns + x]
+            tile := params.tilegrid.tile_types[tile_type]
+            render_sprite(RenderSprite{params.transform, tile.sprite})
+        }
+    }
+}
+
+RenderTileGridLines :: struct {
+    viewport: WorldViewport2D, 
+    transform: la.Matrix3f64, 
+    tilegrid: RectangleTileGrid
+}
+
+render_tile_grid_lines :: proc(params: CallbackParams) { 
+    params := params.(RenderTileGridLines)
+    
+    mat := params.transform
+    inverse := la.matrix3_inverse(params.transform)
+
+    bounds_worldspace := ut.apply_matrix_to_bounds(inverse, params.viewport.screen_rect)
     
     // create a big 'ol circle filled with lines
     // but we are not trimming so its really a commically large square
@@ -87,8 +155,8 @@ render_tile_grid_lines :: proc(viewport: WorldViewport2D, transform: ut.Transfor
     ) / 2
 
     // unrounded line counts
-    line_count_x := outer_radius*2 / tilegrid.width
-    line_count_y := outer_radius*2 / tilegrid.height
+    line_count_x := outer_radius*2 / params.tilegrid.width
+    line_count_y := outer_radius*2 / params.tilegrid.height
     
     // rounded line counts
     lines_x := int(line_count_x/2)*2
@@ -97,7 +165,7 @@ render_tile_grid_lines :: proc(viewport: WorldViewport2D, transform: ut.Transfor
     bounds_worldspace_offset := la.Vector2f64{bounds_worldspace.x, bounds_worldspace.y}
 
     for i in -lines_x/2..<lines_x/2 {
-        spacing := f64(i)*tilegrid.width+bounds_worldspace.width/2-math.mod_f64(viewport.camera_position.x, tilegrid.width)
+        spacing := f64(i)*params.tilegrid.width+bounds_worldspace.width/2-math.mod_f64(params.viewport.camera_position.x, params.tilegrid.width)
 
         p1 := la.Vector2f64{spacing, -outer_radius*2} + bounds_worldspace_offset
         p2 := la.Vector2f64{spacing, outer_radius*2} + bounds_worldspace_offset
@@ -109,7 +177,7 @@ render_tile_grid_lines :: proc(viewport: WorldViewport2D, transform: ut.Transfor
     }
     
     for i in -lines_y/2..<lines_y/2 {
-        spacing := f64(i)*tilegrid.height+bounds_worldspace.height/2-math.mod_f64(viewport.camera_position.y, tilegrid.height)
+        spacing := f64(i)*params.tilegrid.height+bounds_worldspace.height/2-math.mod_f64(params.viewport.camera_position.y, params.tilegrid.height)
 
         p1 := la.Vector2f64{-outer_radius*2, spacing} + bounds_worldspace_offset
         p2 := la.Vector2f64{outer_radius*2, spacing} + bounds_worldspace_offset
@@ -124,31 +192,44 @@ render_tile_grid_lines :: proc(viewport: WorldViewport2D, transform: ut.Transfor
     }
 }
 
-render_game_objects :: proc(appdata: ^AppData, viewport_index: editorui.ViewportIndex, id: ut.ObjectId=0) {
+queue_draw :: proc(appdata: ^AppData, callback: DrawCallback) {
+    appdata.draw_callbacks[appdata.draw_callback_next_free] = callback
+    appdata.draw_callback_next_free += 1
+}
+
+RenderSprite :: struct {
+    full_transform: la.Matrix3f64,
+    sprite: Sprite,
+}
+
+render_sprite :: proc(params: CallbackParams) {
+    params := params.(RenderSprite)
+    switch sprite_type in params.sprite {
+    case RectangleSprite:
+        transformed_bounds := ut.bounds_to_bounds(f32, ut.apply_matrix(params.full_transform, sprite_type.rect))
+        rl.DrawRectangleRec(auto_cast transformed_bounds, auto_cast sprite_type.color)
+    }
+}
+
+queue_render_game_objects :: proc(appdata: ^AppData, viewport_index: editorui.ViewportIndex, id: ut.ObjectId=0) {
     game_object := ut.get_object(&appdata.objects, id)
 
     viewport := appdata.viewports[viewport_index]
     viewport_transform := get_viewport_matrix(viewport)
     full_transform := la.matrix_mul(viewport_transform, ut.create_matrix_from_transform(game_object.transform))
+    z := game_object.z_index
 
     switch object_type in game_object.data {
         case Player:
-            render_sprite(full_transform, object_type.sprite)
+            queue_draw(appdata, {z, render_sprite, RenderSprite{full_transform, object_type.sprite}})
         case RootGameObject:
         case RectangleTileGrid:
-            render_tile_grid_lines(viewport, game_object.transform, object_type)
+            queue_draw(appdata, {z, render_tile_grid_lines, RenderTileGridLines{viewport, full_transform, object_type}})
+            queue_draw(appdata, {z, render_tile_grid_cells, RenderTileGridCells{viewport, full_transform, object_type}})
     }
 
     for child_id in game_object.children {
-        render_game_objects(appdata, viewport_index, child_id)
-    }
-}
-
-render_sprite :: proc(transform_matrix: la.Matrix3x3f64, sprite: Sprite) {
-    switch sprite_type in sprite {
-    case RectangleSprite:
-        transformed_bounds := ut.bounds_to_bounds(f32, ut.apply_matrix(transform_matrix, sprite_type.rect))
-        rl.DrawRectangleRec(auto_cast transformed_bounds, auto_cast sprite_type.color)
+        queue_render_game_objects(appdata, viewport_index, child_id)
     }
 }
 
@@ -197,7 +278,21 @@ render :: proc(appdata: rawptr, screen_rect: ut.Bounds(f32), id: editorui.Viewpo
     appdata: ^AppData = cast(^AppData)appdata
     appdata.viewports[id].screen_rect = ut.bounds_to_bounds(f64, screen_rect)
 
-    render_game_objects(appdata, id)
+    queue_render_game_objects(appdata, id)
+
+    sort.quick_sort_proc(appdata.draw_callbacks[0:appdata.draw_callback_next_free], proc (a, b: DrawCallback) -> int {
+        return a.z_index > b.z_index ? 1 : 0
+    })
+
+    for draw_callback in appdata.draw_callbacks[0:appdata.draw_callback_next_free] {
+        if draw_callback.fn != nil {
+            draw_callback.fn(draw_callback.params)
+        } else {
+            fmt.println(draw_callback)
+        }
+    }
+
+    appdata.draw_callback_next_free = 0
 
     drag_camera(appdata, id)
 
@@ -239,9 +334,22 @@ get_viewport_matrix :: proc(viewport: WorldViewport2D) -> la.Matrix3x3f64 {
     return la.matrix_mul(view_matrix, la.matrix_mul(camera_matrix, camera_offset))
 }
 
+color_square :: proc(color: ut.Color) -> Sprite {
+    return RectangleSprite {
+        color = color,
+        rect = ut.Bounds(f64) {
+            height = 1,
+            width = 1,
+            x = -0.5,
+            y = -0.5,
+        },
+    }
+}
+
 init_game :: proc(appdata: ^AppData) {
     add_game_object(appdata, 0, GameObject{
         transform = ut.TRANSFORM_IDENTITY_F64,
+        z_index = 1,
         data = Player {
             sprite = RectangleSprite {
                 color = ut.WHITE,
@@ -257,6 +365,7 @@ init_game :: proc(appdata: ^AppData) {
     
     add_game_object(appdata, 0, GameObject{
         transform = ut.TRANSFORM_IDENTITY_F64,
+        z_index = 1,
         data = Player {
             sprite = RectangleSprite {
                 color = ut.WHITE,
@@ -275,6 +384,10 @@ init_game :: proc(appdata: ^AppData) {
         data = RectangleTileGrid {
             width = 1,
             height = 1,
+            tile_types = {
+                TileType { color_square(ut.ORANGE) },
+                TileType { color_square(ut.RED) },
+            },
         }
     })
 
@@ -316,7 +429,10 @@ initialize_app :: proc(appdata: ^AppData, allocator: mem.Allocator) {
     }
 
     // root element
-    ut.create_object(&appdata.objects, GameObject {})
+    ut.create_object(&appdata.objects, GameObject {})    
+    
+    // draw callback
+    appdata.draw_callbacks = make([]DrawCallback, 10000, mem.arena_allocator(&appdata.init_allocator))
 
     // game
     init_game(appdata)

@@ -1,5 +1,6 @@
 package raylibeditorui
 
+import "core:container/bit_array"
 import clay "project:clay-odin"
 
 import ed "project:editor"
@@ -205,11 +206,11 @@ render_dropdown_floating_menu :: proc(
         }
 
         rl.DrawTextEx(
-            get_font(&font_table, 0, u16(editor_ui.theme.font_size)), 
+            get_font(&font_table, 0, u16(render_info.font_size)), 
             strings.unsafe_string_to_cstring(string(buf[:length])),
             { f32(padding + render_command.boundingBox.x), f32(render_command.boundingBox.y + offset + f32(render_info.inner_padding)) },
             f32(font_size),
-            f32(editor_ui.theme.letter_spacing),
+            f32(render_info.letter_spacing),
             auto_cast render_info.text_color,
         )
     }
@@ -221,7 +222,7 @@ render_dropdown_floating_menu :: proc(
     length += 1
 
     rl.DrawTextEx(
-        get_font(&font_table, 0, u16(editor_ui.theme.font_size)), 
+        get_font(&font_table, 0, u16(render_info.font_size)), 
         strings.unsafe_string_to_cstring(string(buf[:length])),
         {f32(padding + render_command.boundingBox.x),
         f32(render_command.boundingBox.y)},
@@ -268,6 +269,53 @@ render_dropdown_input :: proc(
             f32(editor_ui.theme.letter_spacing),
             auto_cast render_info.text_color,
         )
+    }
+}
+
+get_bit :: proc(bits: []u8, bit_num: u32) -> bool {
+    bit := u8(bit_num % 8)
+    byte := bit_num / 8
+    return (bits[byte] >> bit) & 1 == 1 ? true : false
+}
+
+render_multi_dropdown_floating_menu :: proc(
+    ui: ^editorui.ActiveInfo,
+    render_command: clay.RenderCommand, 
+    dropdown_input: ed.MultiDropdown, 
+    input_index: ed.InputIndex,
+    render_info: editorui.DropdownRenderInfo,
+    within: bool,
+) {
+    for i in dropdown_input.lower..<dropdown_input.upper {
+        //value := get_bit(dropdown_input.current, i)
+    }
+}
+
+render_multi_dropdown_input :: proc(
+    ui: ^editorui.ActiveInfo,
+    render_command: clay.RenderCommand, 
+    dropdown_input: ed.MultiDropdown, 
+    input_index: ed.InputIndex,
+    render_info: editorui.DropdownRenderInfo,
+    text_render_info: editorui.TextInputRenderInfo,
+    allocator: mem.Allocator,
+    frame_allocator: mem.Allocator,
+    within: bool,
+) {
+    new_str: string = ""
+
+    render_text_input(
+        ui, auto_cast render_command.boundingBox, "", "", &new_str, 
+        proc(ptr: rawptr, new_str: string) { (cast(^string)ptr)^ = new_str }, 
+        input_index, text_render_info, allocator, frame_allocator, within
+    )
+
+    if new_str != "" {
+        ui.active_data = editorui.MultiDropdown {
+            search_string = new_str,
+            selected = 0,
+        }
+        ui.active_index = input_index
     }
 }
 
@@ -329,6 +377,8 @@ render_custom_widget :: proc(
         within := clay.PointerOver(clay_id)
 
         switch input_data in input {
+        case ed.MultiDropdown:
+            render_multi_dropdown_input(&editor_ui.active, render_command, input_data, input_index, render_infos.dropdown, render_infos.text, allocator, frame_allocator, within)
         case ed.Dropdown(u8):
             render_dropdown_input(editor_ui, render_command, input_data, input_index, render_infos.dropdown, within)
         case ed.Dropdown(u16):
@@ -349,8 +399,8 @@ render_custom_widget :: proc(
             }
         case ed.TextInputString:
             render_text_input(
-                editor_ui, 
-                render_command, 
+                &editor_ui.active, 
+                auto_cast render_command.boundingBox, 
                 input_data.placeholder, 
                 input_data.text == nil ? "" : input_data.text^, 
                 cast(rawptr)input_data.text, 
@@ -365,7 +415,7 @@ render_custom_widget :: proc(
                 within
             )
         case ed.TextInputMutableBuffer:
-            //input_data.
+            unimplemented()
         case ed.NumberInput(f64):
             render_number_input(editor_ui, render_command, input_data, input_index, render_infos.slider, render_infos.text, allocator, frame_allocator, within)
         case ed.NumberInput(i32):
@@ -388,28 +438,31 @@ TextInputType :: union {
 }
 
 render_text_input :: proc(
-    editor_ui: ^editorui.EditorUI,
-    render_command: clay.RenderCommand, 
+    ui: ^editorui.ActiveInfo,
+    bounding_box: ut.Bounds(f32),
 
     placeholder: string,
     text: string,
     commit_user_ptr: rawptr,
     commit: proc (rawptr, string),
 
+    // need to separate input index from 
     input_index: ed.InputIndex,
+
     render_info: editorui.TextInputRenderInfo,
+
     allocator: mem.Allocator,
     frame_allocator: mem.Allocator,
 
     within: bool,
 ) {
-    mouse_within := ut.position_within_bounds(auto_cast rl.GetMousePosition(), auto_cast render_command.boundingBox)
-    rl.DrawRectangleRec(auto_cast render_command.boundingBox, auto_cast render_info.back_color)
-    active := editor_ui.active_index == input_index
+    mouse_within := ut.position_within_bounds(auto_cast rl.GetMousePosition(), auto_cast bounding_box)
+    rl.DrawRectangleRec(auto_cast bounding_box, auto_cast render_info.back_color)
+    active := ui.active_index == input_index
     padding := f32(render_info.padding)
 
     if active {
-        rl.DrawRectangleLinesEx(auto_cast render_command.boundingBox, 1, auto_cast render_info.border_color)
+        rl.DrawRectangleLinesEx(auto_cast bounding_box, 1, auto_cast render_info.border_color)
     }
 
     if mouse_within && within && rl.IsMouseButtonPressed(.LEFT) {
@@ -429,8 +482,8 @@ render_text_input :: proc(
             active_data.buf_len += 1
         }
 
-        editor_ui.active_data = active_data
-        editor_ui.active_index = input_index
+        ui.active_data = active_data
+        ui.active_index = input_index
     }
 
     //TODOs: 
@@ -438,7 +491,7 @@ render_text_input :: proc(
     // - proper caret position
     // - undo/(redo??)
     if active {
-        active_data := &editor_ui.active_data.(editorui.TextInput)
+        active_data := &ui.active_data.(editorui.TextInput)
         ctrl := rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL)
 
         if !ctrl {
@@ -479,8 +532,8 @@ render_text_input :: proc(
                     active_data.buf[active_data.buf_len-1] = '\x00'
                 }
             case .ENTER:
-                editor_ui.active_index = max(ed.InputIndex)
-                active_data := &editor_ui.active_data.(editorui.TextInput)
+                ui.active_index = max(ed.InputIndex)
+                active_data := &ui.active_data.(editorui.TextInput)
                 commit(commit_user_ptr, string(active_data.buf[0:active_data.buf_len]))
             }
             
@@ -489,8 +542,8 @@ render_text_input :: proc(
     }
 
     if (rl.IsKeyPressed(.ESCAPE) || rl.IsMouseButtonPressed(.LEFT) && !mouse_within) && active {
-        editor_ui.active_index = max(ed.InputIndex)
-        active_data := &editor_ui.active_data.(editorui.TextInput)
+        ui.active_index = max(ed.InputIndex)
+        active_data := &ui.active_data.(editorui.TextInput)
         commit(commit_user_ptr, string(active_data.buf[0:active_data.buf_len]))
     }
     
@@ -499,7 +552,7 @@ render_text_input :: proc(
     text_color: ut.Color
 
     if active {
-        active_data := editor_ui.active_data.(editorui.TextInput)
+        active_data := ui.active_data.(editorui.TextInput)
 
         text_cstring := strings.clone_to_cstring(string(active_data.buf[:active_data.buf_len]), frame_allocator)
         render_string = text_cstring
@@ -514,15 +567,15 @@ render_text_input :: proc(
         text_color = render_info.text_color
     }
     
-    font := get_font(&font_table, 0, u16(editor_ui.theme.font_size))
-    text_width: i32 = auto_cast rl.MeasureTextEx(font, render_string, f32(render_info.font_size), f32(editor_ui.theme.letter_spacing)).x
+    font := get_font(&font_table, 0, u16(render_info.font_size))
+    text_width: i32 = auto_cast rl.MeasureTextEx(font, render_string, f32(render_info.font_size), f32(render_info.letter_spacing)).x
 
     if active {
         rl.DrawRectangle(
-            i32(padding+render_command.boundingBox.x)+text_width, 
-            i32(render_command.boundingBox.y+padding), 
+            i32(padding+bounding_box.x)+text_width, 
+            i32(bounding_box.y+padding), 
             i32(render_info.caret_width),
-            i32(render_command.boundingBox.height-padding*2),
+            i32(bounding_box.height-padding*2),
             auto_cast render_info.caret_color,
         )
     }
@@ -530,10 +583,10 @@ render_text_input :: proc(
     rl.DrawTextEx(
         font, 
         render_string, 
-        {f32(padding + render_command.boundingBox.x), 
-        f32(render_command.boundingBox.y)}, 
+        {f32(padding + bounding_box.x), 
+        f32(bounding_box.y)}, 
         f32(render_info.font_size), 
-        f32(editor_ui.theme.letter_spacing), 
+        f32(render_info.letter_spacing), 
         auto_cast text_color
     )
 }
@@ -702,8 +755,8 @@ render_number_input :: proc(
             str := fmt_number(buf[:], number_input.current^)
             
             render_text_input(
-                editor_ui, 
-                render_command, 
+                &editor_ui.active, 
+                auto_cast render_command.boundingBox, 
                 number_input.placeholder,
                 string(str),
                 cast(rawptr)number_input.current,

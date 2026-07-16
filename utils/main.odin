@@ -7,6 +7,9 @@ Color :: distinct [4]u8
 
 WHITE :: Color { 255, 255, 255, 255 }
 BLACK :: Color { 0, 0, 0, 255 }
+RED :: Color { 255, 0, 0, 255 }
+BLUE :: Color { 0, 0, 255, 255 }
+ORANGE :: Color { 255, 125, 0, 255 }
 
 concatenate :: proc(buf: []u8, strs: ..string) -> string {
     offset := 0
@@ -216,6 +219,21 @@ get_object :: proc(pool: ^ObjectPool($T), id: ObjectId) -> ^T {
         return nil
     }
     return &pool.game_objects[index]
+}
+
+CallbackFunctionRet :: struct(T: typeid) {
+    data: rawptr,
+    fn: proc(rawptr) -> U,
+}
+
+CallbackFunctionParams :: struct(T: typeid) {
+    data: rawptr,
+    fn: proc(rawptr, T),
+}
+
+CallbackFunctionParamsRet :: struct(T: typeid, U: typeid) {
+    data: rawptr,
+    fn: proc(rawptr, T) -> U,
 }
 
 //Transform :: la.Matrix3x2f64

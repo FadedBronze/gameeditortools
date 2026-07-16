@@ -34,6 +34,7 @@ RenderInfos :: struct {
 
 DropdownRenderInfo :: struct {
     font_size: u8,
+    letter_spacing: u8,
     padding: u8,
     gap: u8,
     inner_padding: u8,
@@ -45,6 +46,7 @@ DropdownRenderInfo :: struct {
 
 TextInputRenderInfo :: struct {
     font_size: u8,
+    letter_spacing: u8,
     padding: u8,
     caret_width: u8,
     caret_color: ut.Color,
@@ -59,13 +61,14 @@ TextInput :: struct {
     buf_len: u8,
 }
 
-NumberTextInput :: struct {}
-
-Slider :: struct {}
+MultiDropdown :: struct {
+    search_string: string,
+    selected: u8,
+}
 
 ActiveWidgetData :: union {
-    Slider,
     TextInput,
+    MultiDropdown,
 }
 
 EditorUITheme :: struct {
@@ -76,12 +79,16 @@ EditorUITheme :: struct {
     highlight_color: ut.Color "slider",
 }
 
+ActiveInfo :: struct {
+    active_index: ed.InputIndex,
+    active_data: editorui.ActiveWidgetData,
+}
+
 EditorUI :: struct {
     theme: EditorUITheme,
     render_infos: RenderInfos,
 
-    active_data: ActiveWidgetData,
-    active_index: ed.InputIndex,
+    using active: ActiveInfo,
 
     panel_pool: ed.PanelPool,
     panels: map[string]ed.GroupIndex,
@@ -181,6 +188,7 @@ create_render_infos :: proc(theme: EditorUITheme) -> RenderInfos {
         dropdown = DropdownRenderInfo {
             back_color = widget_color,
             font_size = theme.font_size,
+            letter_spacing = theme.letter_spacing,
             border_color = widget_color_dark,
             text_color = theme.text_color,
             outline_color = widget_color_middle,
@@ -327,6 +335,8 @@ custom_component :: proc(editor_ui: ^EditorUI, widget: ed.InputIndex) {
     case ed.Dropdown(u32):
         sizing = { width = clay.SizingGrow({}), height = size }
     case ed.Dropdown(u64):
+        sizing = { width = clay.SizingGrow({}), height = size }
+    case ed.MultiDropdown:
         sizing = { width = clay.SizingGrow({}), height = size }
     }
     

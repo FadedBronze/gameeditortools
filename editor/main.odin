@@ -42,10 +42,19 @@ Dropdown :: struct(T: typeid) {
     current: ^T,
 }
 
+MultiDropdown :: struct {
+    enum_names: []string,
+    enum_values: []rn.Type_Info_Enum_Value,
+    upper: u32,
+    lower: u32,
+    current: []u8,
+}
+
 InputComponent :: union {
     Toggle,
     TextInputString,
     TextInputMutableBuffer,
+    MultiDropdown,
     Dropdown(u8),
     Dropdown(u16),
     Dropdown(u32),
@@ -366,6 +375,42 @@ create_panel_recurse_struct_fields :: proc(
             })
             new_size := GroupIndex(len(groups)-1)
             parent.subgroup[parent_idx] = new_size
+        case rn.Type_Info_Bit_Set:
+            if .Dropdown in tag.flags {
+                base_enum: rn.Type_Info_Enum
+
+                #partial switch bitsettype in info.elem.variant {
+                case rn.Type_Info_Named:
+                    #partial switch namedbase in bitsettype.base.variant {
+                    case rn.Type_Info_Enum:
+                        base_enum = namedbase
+                    case:
+                        unimplemented()
+                    }
+                case rn.Type_Info_Enum:
+                    base_enum = bitsettype
+                case:
+                    unimplemented()
+                } 
+
+                if len(base_enum.values) > 0 {
+                    append(inputs, MultiDropdown {
+                        current = slice.from_ptr(cast([^]u8)(cast(uintptr)s+o), info.underlying.size),
+                        enum_names = base_enum.names,
+                        enum_values = base_enum.values,
+                        lower = u32(info.lower),
+                        upper = u32(info.upper),
+                    })
+                }
+
+                append(groups, Group {
+                    type = .Component,
+                    input = InputIndex(len(inputs)-1),
+                    label = name,
+                })
+                new_size := GroupIndex(len(groups)-1)
+                parent.subgroup[parent_idx] = new_size
+            }
         case:
             unimplemented()
     }
