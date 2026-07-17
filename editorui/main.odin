@@ -104,6 +104,7 @@ IndexType :: enum u16 {
     Null = 0,
     InputIndex,
     DropdownFloatingMenu,
+    DropdownTextInput,
     Gameview,
 }
 
@@ -297,12 +298,12 @@ render_panel_recurse :: proc(editor_ui: ^EditorUI, panel: ^ed.Group) {
     }
 }
 
-calculate_dropdown_height :: proc(input: ed.Dropdown($T), theme: editorui.EditorUITheme, dropdown: DropdownRenderInfo) -> f32 {
+calculate_dropdown_height :: proc(entries: int, dropdown: DropdownRenderInfo) -> f32 {
     gap := f32(dropdown.gap)
-    font_size := f32(theme.font_size)
+    font_size := f32(dropdown.font_size)
     inner_padding := f32(dropdown.inner_padding)
     
-    return (gap+font_size)*f32(len(input.enum_names)+1)-gap+inner_padding
+    return (gap+font_size)*f32(entries+1)-gap+inner_padding
 }
 
 custom_component :: proc(editor_ui: ^EditorUI, widget: ed.InputIndex) {
@@ -395,18 +396,22 @@ custom_component :: proc(editor_ui: ^EditorUI, widget: ed.InputIndex) {
         if custom_is_input(editor_ui.active_id, widget) {
             #partial switch v in input {
                 case ed.Dropdown(u8):
-                    height := calculate_dropdown_height(v, editor_ui.theme, editor_ui.render_infos.dropdown)
+                    height := calculate_dropdown_height(len(v.enum_names), editor_ui.render_infos.dropdown)
                     dropdown_menu(widget, height)
                 case ed.Dropdown(u16):
-                    height := calculate_dropdown_height(v, editor_ui.theme, editor_ui.render_infos.dropdown)
+                    height := calculate_dropdown_height(len(v.enum_names), editor_ui.render_infos.dropdown)
                     dropdown_menu(widget, height)
                 case ed.Dropdown(u32):
-                    height := calculate_dropdown_height(v, editor_ui.theme, editor_ui.render_infos.dropdown)
+                    height := calculate_dropdown_height(len(v.enum_names), editor_ui.render_infos.dropdown)
                     dropdown_menu(widget, height)
                 case ed.Dropdown(u64):
-                    height := calculate_dropdown_height(v, editor_ui.theme, editor_ui.render_infos.dropdown)
+                    height := calculate_dropdown_height(len(v.enum_names), editor_ui.render_infos.dropdown)
+                    dropdown_menu(widget, height)
+                case ed.MultiDropdown:
+                    height := calculate_dropdown_height(len(v.enum_names), editor_ui.render_infos.dropdown)
                     dropdown_menu(widget, height)
                 case:
+                    // do nothing
             }
         }
     }

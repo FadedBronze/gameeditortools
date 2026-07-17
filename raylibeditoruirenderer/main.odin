@@ -286,6 +286,7 @@ render_multi_dropdown_floating_menu :: proc(
     render_info: editorui.DropdownRenderInfo,
     within: bool,
 ) {
+    fmt.println("hello?")
     for i in dropdown_input.lower..<dropdown_input.upper {
         //value := get_bit(dropdown_input.current, i)
     }
@@ -305,9 +306,14 @@ render_multi_dropdown_input :: proc(
     new_str: string = ""
 
     render_text_input(
-        ui, auto_cast render_command.boundingBox, "", "", &new_str, 
+        &dropdown_active_info, auto_cast render_command.boundingBox, "", "", &new_str, 
         proc(ptr: rawptr, new_str: string) { (cast(^string)ptr)^ = new_str }, 
-        input_index, text_render_info, allocator, frame_allocator, within
+        editorui.CustomId {
+            type = .DropdownTextInput,
+            value = {
+                input_index = input_index,
+            }
+        }, text_render_info, allocator, frame_allocator, within
     )
 
     if new_str != "" {
@@ -317,6 +323,26 @@ render_multi_dropdown_input :: proc(
         }
         ui.active_id = editorui.custom_input_id(input_index)
     }
+
+    active := editorui.custom_input_id(input_index) == ui.active_id
+
+    if active {
+        multi_dropdown := ui.active_data.(editorui.MultiDropdown)
+
+        for i in 0..<len(dropdown_input.enum_names) {
+            name := dropdown_input.enum_names[i]
+            value := dropdown_input.enum_values[i]
+
+            trimmed_sub := strings.trim(multi_dropdown.search_string, " \n\x00")
+
+            lower_name := strings.to_lower(name, frame_allocator)
+            lower_sub := strings.to_lower(trimmed_sub, frame_allocator)
+
+            if strings.index(lower_name, lower_sub) >= 0 {
+                
+            }
+        }
+    }
 }
 
 render_custom_widget :: proc(
@@ -325,6 +351,8 @@ render_custom_widget :: proc(
     custom_id := transmute(editorui.CustomId)render_command.renderData.custom.customData
 
     switch custom_id.type {
+    case .DropdownTextInput:
+        unreachable()
     case .Null:
         unreachable()
     case .Gameview:
@@ -366,6 +394,8 @@ render_custom_widget :: proc(
             render_dropdown_floating_menu(editor_ui, render_command, input_data, input_index, render_infos.dropdown, within)
         case ed.Dropdown(u64):
             render_dropdown_floating_menu(editor_ui, render_command, input_data, input_index, render_infos.dropdown, within)
+        case ed.MultiDropdown:
+            render_multi_dropdown_floating_menu(editor_ui, render_command, input_data, input_index, render_infos.dropdown, within)
         case:
             unreachable()
         }
@@ -408,7 +438,7 @@ render_custom_widget :: proc(
                     old_string: ^string = cast(^string)str
                     old_string^ = new_str
                 }, 
-                input_index, 
+                editorui.custom_input_id(input_index), 
                 render_infos.text, 
                 allocator, 
                 frame_allocator, 
@@ -438,16 +468,21 @@ TextInputType :: union {
 }
 
 render_text_input :: proc(
-    ui: ^editorui.ActiveInfo,
+    active_data: ^editorui.TextInput,
     bounding_box: ut.Bounds(f32),
 
     placeholder: string,
     text: string,
-    commit_user_ptr: rawptr,
-    commit: proc (rawptr, string),
 
-    // need to separate input index from 
-    input_index: ed.InputIndex,
+    on_commit: struct {
+        ptr: rawptr,
+        fn: proc (rawptr, string),
+    },
+    
+    on_focus: struct {
+        ptr: rawptr,
+        fn: proc (rawptr),
+    },
 
     render_info: editorui.TextInputRenderInfo,
 
@@ -458,7 +493,7 @@ render_text_input :: proc(
 ) {
     mouse_within := ut.position_within_bounds(auto_cast rl.GetMousePosition(), auto_cast bounding_box)
     rl.DrawRectangleRec(auto_cast bounding_box, auto_cast render_info.back_color)
-    active := editorui.custom_is_input(ui.active_id, input_index)
+    active := active_data != nil
     padding := f32(render_info.padding)
 
     if active {
@@ -467,7 +502,7 @@ render_text_input :: proc(
 
     if mouse_within && within && rl.IsMouseButtonPressed(.LEFT) {
         // TODO: decide how this gets freed properly
-        active_data := editorui.TextInput{
+        new_active_data := editorui.TextInput{
             buf = make([]u8, 32),
             buf_len = 1,
         }
@@ -482,8 +517,8 @@ render_text_input :: proc(
             active_data.buf_len += 1
         }
 
-        ui.active_data = active_data
-        ui.active_id = editorui.custom_input_id(input_index)
+        active_data^ = new_active_data
+        on_focus.fn(on_focus.ptr)
     }
 
     //TODOs: 
@@ -491,7 +526,6 @@ render_text_input :: proc(
     // - proper caret position
     // - undo/(redo??)
     if active {
-        active_data := &ui.active_data.(editorui.TextInput)
         ctrl := rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL)
 
         if !ctrl {
@@ -532,9 +566,7 @@ render_text_input :: proc(
                     active_data.buf[active_data.buf_len-1] = '\x00'
                 }
             case .ENTER:
-                ui.active_id = editorui.custom_input_id(max(ed.InputIndex))
-                active_data := &ui.active_data.(editorui.TextInput)
-                commit(commit_user_ptr, string(active_data.buf[0:active_data.buf_len]))
+                on_commit.fn(on_commit.ptr, string(active_data.buf[0:active_data.buf_len]))
             }
             
             key = rl.GetKeyPressed()
@@ -542,9 +574,7 @@ render_text_input :: proc(
     }
 
     if (rl.IsKeyPressed(.ESCAPE) || rl.IsMouseButtonPressed(.LEFT) && !mouse_within) && active {
-        ui.active_id = editorui.custom_input_id(max(ed.InputIndex))
-        active_data := &ui.active_data.(editorui.TextInput)
-        commit(commit_user_ptr, string(active_data.buf[0:active_data.buf_len]))
+        on_commit.fn(on_commit.ptr, string(active_data.buf[0:active_data.buf_len]))
     }
     
     empty := text == ""
@@ -552,8 +582,6 @@ render_text_input :: proc(
     text_color: ut.Color
 
     if active {
-        active_data := ui.active_data.(editorui.TextInput)
-
         text_cstring := strings.clone_to_cstring(string(active_data.buf[:active_data.buf_len]), frame_allocator)
         render_string = text_cstring
         text_color = render_info.text_color
@@ -753,27 +781,35 @@ render_number_input :: proc(
         case .Text:
             buf: [32]u8
             str := fmt_number(buf[:], number_input.current^)
+            active := editorui.custom_is_input(editor_ui.active_id, input_index)
+            text_input := editor_ui.active.active_data.(editorui.TextInput)
             
             render_text_input(
-                &editor_ui.active, 
+                active ? &text_input : nil,
                 auto_cast render_command.boundingBox, 
                 number_input.placeholder,
                 string(str),
-                cast(rawptr)number_input.current,
-                proc(ptr: rawptr, new_string: string) {
-                    parse_str := new_string
-                    if new_string[len(new_string)-1] == '\x00' {
-                        parse_str = new_string[:len(new_string)-1]
-                    }
+                {
+                    cast(rawptr)number_input.current,
+                    proc(ptr: rawptr, new_string: string) {
+                        parse_str := new_string
+                        if new_string[len(new_string)-1] == '\x00' {
+                            parse_str = new_string[:len(new_string)-1]
+                        }
 
-                    current := cast(^T)ptr
-                    val, ok := parse_number(T, parse_str)
+                        current := cast(^T)ptr
+                        val, ok := parse_number(T, parse_str)
 
-                    if ok {
-                        current^ = val
-                    }
+                        if ok {
+                            current^ = val
+                        }
+                    },
                 },
-                input_index,
+                {
+                    cast(rawptr)number_input.current,
+                    proc(ptr: rawptr) {
+                    },
+                },
                 text_render_info,
                 allocator,
                 frame_allocator,
