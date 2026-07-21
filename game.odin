@@ -5,10 +5,11 @@ import ut "utils"
 import clay "clay-odin"
 import rl "vendor:raylib"
 import la "core:math/linalg"
-import "core:sort"
 
 import "core:math"
 import "core:mem"
+import "core:fmt"
+import "core:sort"
 
 WorldViewport2D :: struct {
     world_to_screenspace_scale: f64 "text", 
@@ -22,35 +23,37 @@ Player :: struct {
     sprite: Sprite,
 }
 
-TileTypeIndex :: distinct u32
-
-TileType :: struct {
-    sprite: Sprite,
+TileType :: enum {
+    Empty,
+    Red,
+    Blue,
 }
 
 RectangleTileGrid :: struct {
     width: f64 "text",
     height: f64 "text",
-    x: u16,
-    y: u16,
-    columns: u16,
-    rows: u16,
-    tile_types: []TileType,
-    tiles: []TileTypeIndex,
+    bounds: ut.Bounds(i32) "group",
+    tiles: []TileType,
+    transform: ut.Transform(f64) "group" 
 }
 
 RootGameObject :: struct {}
 
-GameObject :: struct {
-    transform: ut.Transform(f64),
-    z_index: u16,
-    data: union {
-        RootGameObject,
-        Player,
-        RectangleTileGrid,
-    },
-    children: []ut.ObjectId,
+Tile :: struct {
+    sprite: Sprite
 }
+
+//GameObject :: struct {
+//    transform: ut.Transform(f64),
+//    z_index: u16,
+//    data: union {
+//        RootGameObject,
+//        Player,
+//        Tile,
+//        RectangleTileGrid,
+//    },
+//    children: []ut.ObjectId,
+//}
 
 MAX_GAMEOBJECTS :: 10000
 INIT_MEMORY_BUFFER_SIZE :: 10000000
@@ -63,34 +66,26 @@ ViewportDrag :: struct {
     camera_inverse_transform_matrix: la.Matrix3f64,
 }
 
-DrawCallback :: struct {
-    z_index: u16,
-    fn: proc (param: CallbackParams),
-    params: CallbackParams,
-}
-
-CallbackParams :: union {
-    RenderSprite,
-    RenderTileGridLines,
-    RenderTileGridCells,
+Views :: enum {
+    WorldViewports,    
+    TileEditor,
 }
 
 EditorSettings :: struct {
-    open_views: bit_set[enum {
-        WorldViewports,    
-        ActiveToolSelector,
-    }] "dropdown",
-    //active_tool: enum {
-    //    CameraControl,
-    //    TileBrush,
-    //} "dropdown",
+    open_views: bit_set[Views] "dropdown",
+    selected_tile: TileType "text",
+    active_tool: enum {
+        CameraControl,
+        TileBrush,
+    } "dropdown",
 }
 
 AppData :: struct {
     delta_time: f32,
     ui_context: ^clay.Context,
     viewports: [2]WorldViewport2D,
-    objects: ut.ObjectPool(GameObject),
+
+    tilegrid: RectangleTileGrid,
     
     viewport_drag: ViewportDrag,
 
@@ -100,8 +95,8 @@ AppData :: struct {
     init_buffer: []u8,
     init_allocator: mem.Arena,
 
-    draw_callbacks: []DrawCallback,
-    draw_callback_next_free: u32,
+    //draw_callbacks: []DrawCallback,
+    //draw_callback_next_free: u32,
 
     editor_settings: EditorSettings,
 }
@@ -115,37 +110,11 @@ Sprite :: union {
     RectangleSprite
 }
 
-RenderTileGridCells :: struct {
-    viewport: WorldViewport2D, 
-    transform: la.Matrix3f64, 
-    tilegrid: RectangleTileGrid
-}
+render_tile_grid_lines :: proc(viewport: WorldViewport2D, tilegrid: RectangleTileGrid) { 
+    mat := ut.create_matrix_from_transform(tilegrid.transform) * get_viewport_matrix(viewport)
+    inverse := la.matrix3_inverse(mat)
 
-render_tile_grid_cells :: proc(params: CallbackParams) {
-    params := params.(RenderTileGridCells)
-
-    for y in 0..<params.tilegrid.rows {
-        for x in 0..<params.tilegrid.columns {
-            tile_type := params.tilegrid.tiles[y * params.tilegrid.columns + x]
-            tile := params.tilegrid.tile_types[tile_type]
-            render_sprite(RenderSprite{params.transform, tile.sprite})
-        }
-    }
-}
-
-RenderTileGridLines :: struct {
-    viewport: WorldViewport2D, 
-    transform: la.Matrix3f64, 
-    tilegrid: RectangleTileGrid
-}
-
-render_tile_grid_lines :: proc(params: CallbackParams) { 
-    params := params.(RenderTileGridLines)
-    
-    mat := params.transform
-    inverse := la.matrix3_inverse(params.transform)
-
-    bounds_worldspace := ut.apply_matrix_to_bounds(inverse, params.viewport.screen_rect)
+    bounds_worldspace := ut.apply_matrix_to_bounds(inverse, viewport.screen_rect)
     
     // create a big 'ol circle filled with lines
     // but we are not trimming so its really a commically large square
@@ -155,8 +124,8 @@ render_tile_grid_lines :: proc(params: CallbackParams) {
     ) / 2
 
     // unrounded line counts
-    line_count_x := outer_radius*2 / params.tilegrid.width
-    line_count_y := outer_radius*2 / params.tilegrid.height
+    line_count_x := outer_radius*2 / tilegrid.width
+    line_count_y := outer_radius*2 / tilegrid.height
     
     // rounded line counts
     lines_x := int(line_count_x/2)*2
@@ -165,7 +134,7 @@ render_tile_grid_lines :: proc(params: CallbackParams) {
     bounds_worldspace_offset := la.Vector2f64{bounds_worldspace.x, bounds_worldspace.y}
 
     for i in -lines_x/2..<lines_x/2 {
-        spacing := f64(i)*params.tilegrid.width+bounds_worldspace.width/2-math.mod_f64(params.viewport.camera_position.x, params.tilegrid.width)
+        spacing := f64(i)*tilegrid.width+bounds_worldspace.width/2-math.mod_f64(viewport.camera_position.x, tilegrid.width)
 
         p1 := la.Vector2f64{spacing, -outer_radius*2} + bounds_worldspace_offset
         p2 := la.Vector2f64{spacing, outer_radius*2} + bounds_worldspace_offset
@@ -177,7 +146,7 @@ render_tile_grid_lines :: proc(params: CallbackParams) {
     }
     
     for i in -lines_y/2..<lines_y/2 {
-        spacing := f64(i)*params.tilegrid.height+bounds_worldspace.height/2-math.mod_f64(params.viewport.camera_position.y, params.tilegrid.height)
+        spacing := f64(i)*tilegrid.height+bounds_worldspace.height/2-math.mod_f64(viewport.camera_position.y, tilegrid.height)
 
         p1 := la.Vector2f64{-outer_radius*2, spacing} + bounds_worldspace_offset
         p2 := la.Vector2f64{outer_radius*2, spacing} + bounds_worldspace_offset
@@ -185,51 +154,7 @@ render_tile_grid_lines :: proc(params: CallbackParams) {
         p1 = ut.apply_matrix_to_point(mat, p1)
         p2 = ut.apply_matrix_to_point(mat, p2)
 
-        //p1 = ut.apply_matriy_to_point(mat, p1)
-        //p2 = ut.apply_matriy_to_point(mat, p2)
-
         rl.DrawLineEx(auto_cast p1, auto_cast p2, 1, auto_cast ut.WHITE/3)
-    }
-}
-
-queue_draw :: proc(appdata: ^AppData, callback: DrawCallback) {
-    appdata.draw_callbacks[appdata.draw_callback_next_free] = callback
-    appdata.draw_callback_next_free += 1
-}
-
-RenderSprite :: struct {
-    full_transform: la.Matrix3f64,
-    sprite: Sprite,
-}
-
-render_sprite :: proc(params: CallbackParams) {
-    params := params.(RenderSprite)
-    switch sprite_type in params.sprite {
-    case RectangleSprite:
-        transformed_bounds := ut.bounds_to_bounds(f32, ut.apply_matrix(params.full_transform, sprite_type.rect))
-        rl.DrawRectangleRec(auto_cast transformed_bounds, auto_cast sprite_type.color)
-    }
-}
-
-queue_render_game_objects :: proc(appdata: ^AppData, viewport_index: editorui.ViewportIndex, id: ut.ObjectId=0) {
-    game_object := ut.get_object(&appdata.objects, id)
-
-    viewport := appdata.viewports[viewport_index]
-    viewport_transform := get_viewport_matrix(viewport)
-    full_transform := la.matrix_mul(viewport_transform, ut.create_matrix_from_transform(game_object.transform))
-    z := game_object.z_index
-
-    switch object_type in game_object.data {
-        case Player:
-            queue_draw(appdata, {z, render_sprite, RenderSprite{full_transform, object_type.sprite}})
-        case RootGameObject:
-        case RectangleTileGrid:
-            queue_draw(appdata, {z, render_tile_grid_lines, RenderTileGridLines{viewport, full_transform, object_type}})
-            queue_draw(appdata, {z, render_tile_grid_cells, RenderTileGridCells{viewport, full_transform, object_type}})
-    }
-
-    for child_id in game_object.children {
-        queue_render_game_objects(appdata, viewport_index, child_id)
     }
 }
 
@@ -243,7 +168,7 @@ drag_camera :: proc(appdata: ^AppData, index: editorui.ViewportIndex) {
     viewport := &appdata.viewports[index]
 
     mouse_pos := rl.GetMousePosition()
-    // needs to be replaced with pointer over from editor since ui may need to go over
+    // TODO: needs to be replaced with pointer over from editor since ui may need to go over
     within := ut.position_within_bounds(la.Vector2f64{f64(mouse_pos.x), f64(mouse_pos.y)}, viewport.screen_rect)
 
     if rl.IsMouseButtonPressed(.LEFT) && within {
@@ -274,52 +199,48 @@ drag_camera :: proc(appdata: ^AppData, index: editorui.ViewportIndex) {
     }
 }
 
-render :: proc(appdata: rawptr, screen_rect: ut.Bounds(f32), id: editorui.ViewportIndex) {
-    appdata: ^AppData = cast(^AppData)appdata
-    appdata.viewports[id].screen_rect = ut.bounds_to_bounds(f64, screen_rect)
+screen_to_world_space :: proc(viewport: WorldViewport2D, screen_position: la.Vector2f64) -> la.Vector2f64 {
+    transform := get_viewport_matrix(viewport)
+    screen_to_world_mat := la.matrix3_inverse(transform)
 
-    queue_render_game_objects(appdata, id)
+    return ut.apply_matrix_to_point(screen_to_world_mat, screen_position)
+} 
 
-    sort.quick_sort_proc(appdata.draw_callbacks[0:appdata.draw_callback_next_free], proc (a, b: DrawCallback) -> int {
-        return a.z_index > b.z_index ? 1 : 0
-    })
+place_tile :: proc(appdata: ^AppData, tile_grid: RectangleTileGrid, viewport_id: editorui.ViewportIndex) {
+    viewport := &appdata.viewports[viewport_id]
 
-    for draw_callback in appdata.draw_callbacks[0:appdata.draw_callback_next_free] {
-        if draw_callback.fn != nil {
-            draw_callback.fn(draw_callback.params)
-        } else {
-            fmt.println(draw_callback)
-        }
+    mouse_pos := rl.GetMousePosition()
+    // TODO: needs to be replaced with pointer over from editor since ui may need to go over
+    within := ut.position_within_bounds(la.Vector2f64{f64(mouse_pos.x), f64(mouse_pos.y)}, viewport.screen_rect)
+    world_mouse_pos := screen_to_world_space(viewport^, auto_cast mouse_pos)
+
+    tilegrid_position := [2]int{
+        int(math.mod_f64(world_mouse_pos.x, tile_grid.width)),
+        int(math.mod_f64(world_mouse_pos.y, tile_grid.height))
     }
 
-    appdata.draw_callback_next_free = 0
+    //TODO
+    //tile_grid.tiles[tilegrid_position.y*int(tile_grid.columns)+tilegrid_position.x] = appdata.editor_settings.selected_tile
+}
 
-    drag_camera(appdata, id)
+render :: proc(appdata: rawptr, screen_rect: ut.Bounds(f32), id: editorui.ViewportIndex) {
+    appdata: ^AppData = cast(^AppData)appdata
+    viewport := &appdata.viewports[id]
+    viewport.screen_rect = ut.bounds_to_bounds(f64, screen_rect)
+
+    render_tile_grid_lines(viewport^, appdata.tilegrid)
+
+    switch appdata.editor_settings.active_tool {
+    case .CameraControl:
+        drag_camera(appdata, id)
+    case .TileBrush:
+        //place_tile(appdata, id)
+    }
 
     clay.SetCurrentContext(appdata.ui_context)
     clay.BeginLayout()
     elements := clay.EndLayout(appdata.delta_time)
     clay_renderer(elements)
-}
-
-add_game_object :: proc(appdata: ^AppData, parent_id: ut.ObjectId, object: GameObject) -> ut.ObjectId {
-    return add_game_objects(appdata, parent_id, {object})[0]
-}
-
-add_game_objects :: proc(appdata: ^AppData, parent_id: ut.ObjectId, objects: []GameObject) -> []ut.ObjectId {
-    parent := ut.get_object(&appdata.objects, parent_id)
-
-    new_children := make([]ut.ObjectId, len(objects)+len(parent.children), mem.arena_allocator(&appdata.init_allocator))
-    copy_slice(new_children, parent.children)
-
-    for object, i in objects {
-        id := ut.create_object(&appdata.objects, object)
-        new_children[i+len(parent.children)] = id
-    }
-
-    parent.children = new_children
-
-    return parent.children
 }
 
 get_viewport_matrix :: proc(viewport: WorldViewport2D) -> la.Matrix3x3f64 {
@@ -346,57 +267,57 @@ color_square :: proc(color: ut.Color) -> Sprite {
     }
 }
 
+//set_tile :: proc(appdata: ^AppData, tilegrid_id: ut.ObjectId, position: [2]i32, tile: TileType) {
+//    go := ut.get_object(&appdata.objects, tilegrid_id)
+//    fmt.println(go)
+//    tilegrid := &go.data.(RectangleTileGrid)
+//
+//    // resize case
+//    if !ut.position_within_bounds(position, tilegrid.bounds) {
+//        if position.x-tilegrid.bounds.x >= tilegrid.bounds.width {
+//            tilegrid.bounds.width = position.x-tilegrid.bounds.x
+//        }
+//
+//        if position.x-tilegrid.bounds.x < 0 {
+//            tilegrid.bounds.width += math.abs(position.x-tilegrid.bounds.x)
+//        }
+//        
+//        if position.y-tilegrid.bounds.y >= tilegrid.bounds.height {
+//            tilegrid.bounds.height = position.x-tilegrid.bounds.x
+//        }
+//
+//        if position.y-tilegrid.bounds.y < 0 {
+//            tilegrid.bounds.height += math.abs(position.x-tilegrid.bounds.x)
+//        }
+//    } else {
+//        // basic case
+//        tilegrid.tiles[int(tilegrid.bounds.width) * int(position.y) + int(position.x)] = tile
+//    }
+//}
+//
+//get_tile :: proc(appdata: ^AppData, tilegrid_id: ut.ObjectId, position: [2]u16) -> TileType {
+//    tilegrid := ut.get_object(&appdata.objects, tilegrid_id).data.(RectangleTileGrid)
+//    return tilegrid.tiles[int(tilegrid.bounds.width) * int(position.y) + int(position.x)]
+//}
+
 init_game :: proc(appdata: ^AppData) {
-    add_game_object(appdata, 0, GameObject{
+    appdata.tilegrid = RectangleTileGrid {
+        width = 1,
+        height = 1,
         transform = ut.TRANSFORM_IDENTITY_F64,
-        z_index = 1,
-        data = Player {
-            sprite = RectangleSprite {
-                color = ut.WHITE,
-                rect = ut.Bounds(f64) {
-                    x = -3,
-                    y = -1,
-                    width = 2,
-                    height = 2,
-                }
-            }
-        }
-    })
-    
-    add_game_object(appdata, 0, GameObject{
-        transform = ut.TRANSFORM_IDENTITY_F64,
-        z_index = 1,
-        data = Player {
-            sprite = RectangleSprite {
-                color = ut.WHITE,
-                rect = ut.Bounds(f64) {
-                    x = 1,
-                    y = -1,
-                    width = 2,
-                    height = 2,
-                }
-            }
-        }
-    })
-    
-    add_game_object(appdata, 0, GameObject{
-        transform = ut.TRANSFORM_IDENTITY_F64,
-        data = RectangleTileGrid {
-            width = 1,
-            height = 1,
-            tile_types = {
-                TileType { color_square(ut.ORANGE) },
-                TileType { color_square(ut.RED) },
-            },
-        }
-    })
-
-    for obj in appdata.objects.game_objects[:appdata.objects.next_free_game_object-1] {
-        fmt.println(obj)
     }
-}
+    
+    //set_tile(appdata, tilegrid, {0, 0}, .Blue)
+    //set_tile(appdata, tilegrid, {1, 0}, .Red)
+    //set_tile(appdata, tilegrid, {5, 0}, .Blue)
+    //set_tile(appdata, tilegrid, {500, 0}, .Red)
 
-import "core:fmt"
+    //assert(get_tile(appdata, tilegrid, {500, 0}) == .Red)
+
+    //for obj in appdata.objects.game_objects[:appdata.objects.next_free_game_object-1] {
+    //    fmt.println(obj)
+    //}
+}
 
 initialize_app :: proc(appdata: ^AppData, allocator: mem.Allocator) {
     // memory
@@ -405,9 +326,6 @@ initialize_app :: proc(appdata: ^AppData, allocator: mem.Allocator) {
 
     appdata.init_buffer = make([]u8, INIT_MEMORY_BUFFER_SIZE)
     mem.arena_init(&appdata.init_allocator, appdata.init_buffer)
-
-    appdata.objects.max_objects = 10000
-    ut.object_pool_init(&appdata.objects, mem.arena_allocator(&appdata.init_allocator))
 
     // clay
     min_memory_size := clay.MinMemorySize()
@@ -428,18 +346,6 @@ initialize_app :: proc(appdata: ^AppData, allocator: mem.Allocator) {
         },
     }
 
-    // root element
-    ut.create_object(&appdata.objects, GameObject {})    
-    
-    // draw callback
-    appdata.draw_callbacks = make([]DrawCallback, 10000, mem.arena_allocator(&appdata.init_allocator))
-
     // game
     init_game(appdata)
-
-    //appdata.tile_grid = RectangleTileGrid {
-    //    width = 10,
-    //    height = 10,
-    //    offset = {0, 0},
-    //}
 }

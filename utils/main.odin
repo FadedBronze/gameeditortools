@@ -3,6 +3,8 @@ package utils
 import "core:mem"
 import la "core:math/linalg"
 
+// colors 
+
 Color :: distinct [4]u8
 
 WHITE :: Color { 255, 255, 255, 255 }
@@ -65,11 +67,13 @@ blend_colors :: proc(colors: []Color, t: f32) -> Color {
     return blend_two_colors(colors[colorIdxDown], colors[colorIdxUp], t)
 }
 
+// bounds -----
+
 Bounds :: struct(T: typeid) {
-    x: T,
-    y: T,
-    width: T,
-    height: T,
+    x: T "text",
+    y: T "text",
+    width: T "text",
+    height: T "text",
 }
 
 bounds_to_bounds :: proc($T: typeid, from: Bounds($U)) -> Bounds(T) {
@@ -99,6 +103,8 @@ color_to_f32list :: proc(color: Color) -> [4]f32 {
         f32(color.a),
     }
 }
+
+// transforms -----
 
 Transform :: struct(T: typeid) {
     scale: [2]T "text",
@@ -158,6 +164,8 @@ TRANSFORM_IDENTITY_F64 :: Transform(f64) {
     rotation_rad = 0,
 }
 
+// Object pool stuff ----
+
 ObjectIndex :: distinct u32
 ObjectId :: distinct u32
 
@@ -175,12 +183,11 @@ object_pool_min_memory :: proc(pool: ^ObjectPool($T)) -> u8 {
 }
 
 object_pool_init :: proc(pool: ^ObjectPool($T), allocator: mem.Allocator) {
+    assert(pool.max_objects != 0)
     pool.game_objects = make([]T, pool.max_objects, allocator)
     pool.mapping_id_to_index = make([]ObjectIndex, pool.max_objects, allocator)
     pool.mapping_index_to_id = make([]ObjectId, pool.max_objects, allocator)
 }
-
-import "core:fmt"
 
 create_object :: proc(pool: ^ObjectPool($T), object: T) -> ObjectId {
     assert(pool.next_free_game_object < max(ObjectIndex) && pool.next_free_game_object <= ObjectIndex(pool.max_objects))
@@ -221,71 +228,62 @@ get_object :: proc(pool: ^ObjectPool($T), id: ObjectId) -> ^T {
     return &pool.game_objects[index]
 }
 
-CallbackFunctionRet :: struct(T: typeid) {
-    data: rawptr,
-    fn: proc(rawptr) -> U,
-}
-
-CallbackFunctionParams :: struct(T: typeid) {
-    data: rawptr,
-    fn: proc(rawptr, T),
-}
-
-CallbackFunctionParamsRet :: struct(T: typeid, U: typeid) {
-    data: rawptr,
-    fn: proc(rawptr, T) -> U,
-}
-
-//Transform :: la.Matrix3x2f64
+//@(test)
+//object_reference_test :: proc(t: ^testing.T) {
+//    object_pool: ObjectPool(la.Vector2f32)
+//    object_pool.max_objects = 1000000
+//    object_pool_init(&object_pool, context.allocator)
 //
-///// chops the bottom row off
-//matrix3x3ToTransform :: proc(mat: la.Matrix3x3f64) -> Transform {
-//    return la.Matrix3x2f64 {
-//        mat[0, 0], mat[1, 0], mat[2, 0],
-//        mat[0, 1], mat[1, 1], mat[2, 1],
+//    a := create_object(&object_pool, la.Vector2f32{45, 5})
+//
+//    a_obj := get_object(&object_pool, a)
+//
+//    testing.expect(t, a_obj != nil && a_obj^ == la.Vector2f32{45, 5}, "incorrectly referenced")
+//}
+//
+//@(test)
+//object_mass_deletion_creation_test :: proc(t: ^testing.T) {
+//    object_pool: ObjectPool(la.Vector2f32)
+//    object_pool.max_objects = 1000000
+//    object_pool_init(&object_pool, context.allocator)
+//
+//    for i in 0..<1000000 {
+//        create_object(&object_pool, la.Vector2f32{f32(i) * 2 + 5, 5})
+//    }
+//
+//    for i in 0..<1000000 {
+//        expectation := la.Vector2f32{f32(i) * 2 + 5, 5}
+//        obj := get_object(&object_pool, ObjectId(i))
+//        testing.expect(t, expectation == obj^, "expected equal")
+//        
+//        delete_object(&object_pool, ObjectId(i))
 //    }
 //}
 //
-///// adds empty bottom row
-//transformTo3x3 :: proc(mat: la.Matrix3x2f64) -> la.Matrix3x3f64 {
-//    return la.Matrix3x3f64 {
-//        mat[0, 0], mat[1, 0], mat[2, 0],
-//        mat[0, 1], mat[1, 1], mat[2, 1],
-//        0,         0,         0,
-//    }
-//}
+//@(test)
+//object_random_deletion_creation_test :: proc(t: ^testing.T) {
+//    object_pool: ObjectPool(la.Vector2f32)
+//    object_pool.max_objects = 1000000
+//    object_pool_init(&object_pool, context.allocator)
 //
-//create_transform :: proc(offset: la.Vector2f64, scale: la.Vector2f64, radians: f64) -> Transform {
-//    scale := la.Matrix3x3f64 {
-//        scale.x, 0,       0, 
-//        0,       scale.y, 0, 
-//        0,       0,       0,
-//    }
-//    rotate := la.matrix3_rotate_f64(radians, la.Vector3f64{0, 0, 1})
-//    matrix3x3 := la.matrix_mul(scale, rotate)
-//    matrix3x3[2, 0] += offset.x
-//    matrix3x3[2, 1] += offset.y
-//    return matrix3x3ToTransform(matrix3x3)
-//}
+//    for _ in 0..<1000 {
+//        ids := make([]u32, 1000000)
+//        for i in 0..<1000000 {
+//            ids[i] = u32(i)
+//            id := create_object(&object_pool, la.Vector2f32{f32(i) * 2 + 5, 5})
+//            testing.expect(t, ids[i] == u32(id), "ids should always increment")
+//        }
 //
-//apply_transform :: proc {
-//    apply_transform_to_transform,
-//    apply_transform_to_point
-//}
+//        rand.shuffle(ids)
 //
-//apply_transform_to_transform :: proc(a: Transform, b: Transform) -> Transform {
-//    return matrix3x3ToTransform(la.matrix_mul(transformTo3x3(a), transformTo3x3(b)))
-//}
+//        for j in 0..<1000000 {
+//            i := ids[j]
 //
-//apply_transform_to_point :: proc(a: Transform, b: la.Vector2f64) -> la.Vector2f64 {
-//    return la.matrix_mul_vector(transformTo3x3(a), la.Vector3f64{b.x, b.y, 0}).xy
-//}
-//
-//transform_bounds :: proc(bounds: Bounds($T), transform: la.Matrix3x2f64) -> Bounds(T) { 
-//    return Bounds(T) {
-//        width = bounds.width * transform.scale.x,
-//        height = bounds.height * transform.scale.y,
-//        x = bounds.x * transform.scale.x + transform.offset.x,
-//        y = bounds.x * transform.scale.y + transform.offset.y,
+//            expectation := la.Vector2f32{f32(i) * 2 + 5, 5}
+//            obj := get_object(&object_pool, ObjectId(i))
+//            testing.expect(t, expectation == obj^, "expected equal")
+//            
+//            delete_object(&object_pool, ObjectId(i))
+//        }
 //    }
 //}

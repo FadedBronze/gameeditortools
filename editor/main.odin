@@ -411,7 +411,12 @@ create_panel_recurse_struct_fields :: proc(
                 new_size := GroupIndex(len(groups)-1)
                 parent.subgroup[parent_idx] = new_size
             }
+        case rn.Type_Info_Slice:
+            if .Empty not_in tag.flags {
+                unimplemented()
+            }
         case:
+            fmt.println(info)
             unimplemented()
     }
 }

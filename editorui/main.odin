@@ -62,7 +62,7 @@ TextInput :: struct {
 }
 
 MultiDropdown :: struct {
-    search_string: string,
+    text: TextInput,
     selected: u8,
 }
 
@@ -234,18 +234,18 @@ create_editorui :: proc(theme: EditorUITheme, allocator: mem.Allocator) -> Edito
     }
 }
 
-render_structure_panel :: proc(editor_ui: ^EditorUI, id: string, structure: ^$T, label: string) {
+render_structure_panel :: proc(editor_ui: ^EditorUI, id: string, structure: ^$T, label: string, frame_allocator: mem.Allocator = context.temp_allocator) {
     editor_ui.render_infos = create_render_infos(editor_ui.theme)
     if panel, ok := editor_ui.panels[id]; ok {
-        render_panel_recurse(editor_ui, &editor_ui.panel_pool.groups[panel])
+        render_panel_recurse(editor_ui, &editor_ui.panel_pool.groups[panel], frame_allocator)
     } else {
         panel := ed.create_panel(&editor_ui.panel_pool, structure, label)
         editor_ui.panels[id] = panel
-        render_panel_recurse(editor_ui, &editor_ui.panel_pool.groups[panel])
+        render_panel_recurse(editor_ui, &editor_ui.panel_pool.groups[panel], frame_allocator)
     }
 }
 
-render_panel_recurse :: proc(editor_ui: ^EditorUI, panel: ^ed.Group) {
+render_panel_recurse :: proc(editor_ui: ^EditorUI, panel: ^ed.Group, frame_allocator: mem.Allocator) {
     switch panel.type {
         case .Subgroup:
             if clay.UI()({ 
@@ -273,7 +273,7 @@ render_panel_recurse :: proc(editor_ui: ^EditorUI, panel: ^ed.Group) {
                 }) {
                     for group_index in panel.subgroup {
                         if group_index != 0 {
-                            render_panel_recurse(editor_ui, &editor_ui.panel_pool.groups[group_index])
+                            render_panel_recurse(editor_ui, &editor_ui.panel_pool.groups[group_index], frame_allocator)
                         }
                     }
                 }
@@ -293,9 +293,35 @@ render_panel_recurse :: proc(editor_ui: ^EditorUI, panel: ^ed.Group) {
                 })
 
                 //fmt.println(panel.label)
-                custom_component(editor_ui, panel.input)
+                custom_component(editor_ui, panel.input, frame_allocator)
             }
     }
+}
+
+iterate_dropdown_entries :: proc(i: int, dropdown_input: ed.MultiDropdown, search_str: string, frame_allocator: mem.Allocator) -> (string, int, bool) {
+    lower_name := ""
+    lower_sub := " "
+    name := ""
+
+    next_i := i
+
+    for !strings.contains(lower_name, lower_sub) {
+        if next_i >= len(dropdown_input.enum_names) {
+            return "", next_i, false
+        }
+
+        name = dropdown_input.enum_names[next_i]
+        value := dropdown_input.enum_values[next_i]
+
+        trimmed_sub := strings.trim(search_str, " \n\x00")
+
+        lower_name = strings.to_lower(name)
+        lower_sub = strings.to_lower(trimmed_sub)
+
+        next_i += 1
+    }
+
+    return name, next_i, true
 }
 
 calculate_dropdown_height :: proc(entries: int, dropdown: DropdownRenderInfo) -> f32 {
@@ -306,7 +332,7 @@ calculate_dropdown_height :: proc(entries: int, dropdown: DropdownRenderInfo) ->
     return (gap+font_size)*f32(entries+1)-gap+inner_padding
 }
 
-custom_component :: proc(editor_ui: ^EditorUI, widget: ed.InputIndex) {
+custom_component :: proc(editor_ui: ^EditorUI, widget: ed.InputIndex, frame_allocator: mem.Allocator) {
     sizing: clay.Sizing
     
     size := clay.SizingFixed(f32(editor_ui.theme.font_size))
@@ -408,7 +434,19 @@ custom_component :: proc(editor_ui: ^EditorUI, widget: ed.InputIndex) {
                     height := calculate_dropdown_height(len(v.enum_names), editor_ui.render_infos.dropdown)
                     dropdown_menu(widget, height)
                 case ed.MultiDropdown:
-                    height := calculate_dropdown_height(len(v.enum_names), editor_ui.render_infos.dropdown)
+                    multi_dropdown := editor_ui.active_data.(MultiDropdown)
+
+                    count := -1
+                    i := 0
+                    ok := true
+                    for ok {
+                        count += 1
+                        next_i: int
+                        _, next_i, ok = iterate_dropdown_entries(i, v, transmute(string)multi_dropdown.text.buf[0:multi_dropdown.text.buf_len], frame_allocator)
+                        i = next_i
+                    }
+
+                    height := calculate_dropdown_height(count, editor_ui.render_infos.dropdown)
                     dropdown_menu(widget, height)
                 case:
                     // do nothing

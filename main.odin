@@ -41,17 +41,22 @@ create_layout :: proc(
             }) {
                 editorui.render_structure_panel(editor_ui, "Editor Settings", &appdata.editor_settings, "Editor Settings")
 
-                //if .WorldViewports in appdata.editor_settings.open_views {
-                //    lables := []string{
-                //        "Viewport 1",
-                //        "Viewport 2",
-                //    }
-                //    for i in 0..<2 {
-                //        viewport := &appdata.viewports[i]
-                //        label := lables[i]
-                //        editorui.render_structure_panel(editor_ui, label, &viewport, label)
-                //    }
-                //}
+                if .WorldViewports in appdata.editor_settings.open_views {
+                    lables := []string{
+                        "Viewport 1",
+                        "Viewport 2",
+                    }
+                    for i in 0..<2 {
+                        viewport := &appdata.viewports[i]
+                        label := lables[i]
+                        editorui.render_structure_panel(editor_ui, label, &viewport, label)
+                    }
+                }
+
+                if .TileEditor in appdata.editor_settings.open_views {
+                    label := "Tilegrid"
+                    editorui.render_structure_panel(editor_ui, label, &appdata.tilegrid, label)
+                }
             }
 
             if clay.UI()({ 
@@ -61,21 +66,21 @@ create_layout :: proc(
                 }, 
                 backgroundColor = ut.color_to_f32list(bg),
             }) {
-                //if clay.UI()({ 
-                //    layout = { 
-                //        sizing = { width = clay.SizingPercent(1), height = clay.SizingPercent(0.5) } 
-                //    }, 
-                //}) {
-                //    editorui.gameview(0)
-                //}
+                if clay.UI()({ 
+                    layout = { 
+                        sizing = { width = clay.SizingPercent(1), height = clay.SizingPercent(0.5) } 
+                    }, 
+                }) {
+                    editorui.gameview(0)
+                }
 
-                //if clay.UI()({ 
-                //    layout = { 
-                //        sizing = { width = clay.SizingPercent(1), height = clay.SizingPercent(0.5) } 
-                //    }, 
-                //}) {
-                //    editorui.gameview(1)
-                //}
+                if clay.UI()({ 
+                    layout = { 
+                        sizing = { width = clay.SizingPercent(1), height = clay.SizingPercent(0.5) } 
+                    }, 
+                }) {
+                    editorui.gameview(1)
+                }
             }
 
             if clay.UI()({ 

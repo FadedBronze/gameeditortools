@@ -1,6 +1,5 @@
 package raylibeditorui
 
-import "core:container/bit_array"
 import clay "project:clay-odin"
 
 import ed "project:editor"
@@ -165,7 +164,7 @@ render_dropdown_floating_menu :: proc(
         height = font_size,
     }
 
-    mouse_within := ut.position_within_bounds(auto_cast rl.GetMousePosition(), auto_cast render_command.boundingBox)
+    mouse_within := ut.position_within_bounds(auto_cast rl.GetMousePosition(), transmute(ut.Bounds(f32))render_command.boundingBox)
     active := editorui.custom_is_input(editor_ui.active_id, input_index)
 
     rl.DrawRectangleRec(auto_cast render_command.boundingBox, auto_cast render_info.back_color)
@@ -177,7 +176,7 @@ render_dropdown_floating_menu :: proc(
     rl.DrawRectangleRec(auto_cast render_command.boundingBox, auto_cast render_info.back_color)
 
     rl.DrawRectangleLinesEx(auto_cast render_command.boundingBox, 1, auto_cast auto_cast render_info.outline_color)
-    rl.DrawRectangleLinesEx(auto_cast input_bounds, 1, auto_cast render_info.border_color)
+    rl.DrawRectangleLinesEx(transmute(rl.Rectangle)input_bounds, 1, auto_cast render_info.border_color)
 
     for i in 0..<len(dropdown_input.enum_names) {
         name := dropdown_input.enum_names[i]
@@ -197,7 +196,7 @@ render_dropdown_floating_menu :: proc(
         }
 
         if ut.position_within_bounds(auto_cast rl.GetMousePosition(), bounds) {
-            rl.DrawRectangleRec(auto_cast bounds, auto_cast ut.change_opacity(ut.get_contrasting_color(render_info.back_color), 20))
+            rl.DrawRectangleRec(transmute(rl.Rectangle)bounds, auto_cast ut.change_opacity(ut.get_contrasting_color(render_info.back_color), 20))
 
             if rl.IsMouseButtonDown(.LEFT) {
                 dropdown_input.current^ = T(value)
@@ -243,7 +242,7 @@ render_dropdown_input :: proc(
     padding := f32(render_info.padding)
     font_size := f32(render_info.font_size)
 
-    mouse_within := ut.position_within_bounds(auto_cast rl.GetMousePosition(), auto_cast render_command.boundingBox)
+    mouse_within := ut.position_within_bounds(auto_cast rl.GetMousePosition(), transmute(ut.Bounds(f32))render_command.boundingBox)
 
     rl.DrawRectangleRec(auto_cast render_command.boundingBox, auto_cast render_info.back_color)
 
@@ -278,17 +277,126 @@ get_bit :: proc(bits: []u8, bit_num: u32) -> bool {
     return (bits[byte] >> bit) & 1 == 1 ? true : false
 }
 
+set_bit :: proc(bits: []u8, bit_num: u32, value: bool) {
+    bit := u8(bit_num % 8)
+    byte := bit_num / 8
+    mask := u8(1 << bit)
+
+    if value {
+        bits[byte] |= mask
+    } else {
+        bits[byte] &= ~mask
+    }
+}
+
 render_multi_dropdown_floating_menu :: proc(
     ui: ^editorui.ActiveInfo,
     render_command: clay.RenderCommand, 
     dropdown_input: ed.MultiDropdown, 
     input_index: ed.InputIndex,
     render_info: editorui.DropdownRenderInfo,
+    frame_allocator: mem.Allocator,
     within: bool,
 ) {
-    fmt.println("hello?")
-    for i in dropdown_input.lower..<dropdown_input.upper {
-        //value := get_bit(dropdown_input.current, i)
+    padding := f32(render_info.padding)
+    gap := f32(render_info.gap)
+    font_size := f32(render_info.font_size)
+
+    input_bounds := ut.Bounds(f32) {
+        x = render_command.boundingBox.x,
+        y = render_command.boundingBox.y,
+        width = render_command.boundingBox.width,
+        height = font_size,
+    }
+
+    mouse_within := ut.position_within_bounds(auto_cast rl.GetMousePosition(), transmute(ut.Bounds(f32))render_command.boundingBox)
+
+    if !mouse_within && rl.IsMouseButtonPressed(.LEFT) {
+        ui.active_id = editorui.custom_input_id(max(ed.InputIndex))
+    }
+
+    floating_box := rl.Rectangle {
+        x = render_command.boundingBox.x,
+        y = render_command.boundingBox.y + font_size,
+        width = render_command.boundingBox.width,
+        height = render_command.boundingBox.height - font_size,
+    }
+    
+    rl.DrawRectangleRec(floating_box, auto_cast render_info.back_color)
+
+    rl.DrawRectangleLinesEx(floating_box, 1, auto_cast auto_cast render_info.outline_color)
+    rl.DrawRectangleLinesEx(transmute(rl.Rectangle)input_bounds, 1, auto_cast render_info.border_color)
+
+    i := 0
+    count := 0
+    for {
+        multi_dropdown := ui.active_data.(editorui.MultiDropdown)
+        search_str := transmute(string)multi_dropdown.text.buf[0:multi_dropdown.text.buf_len]
+        name, next_i, ok := editorui.iterate_dropdown_entries(i, dropdown_input, search_str, frame_allocator)
+
+        if !ok {
+            break
+        }
+
+        bit_index := u32(i) + dropdown_input.lower
+
+        if bit_index > dropdown_input.upper {
+            break
+        }
+        
+        value := get_bit(dropdown_input.current, bit_index)
+        // based on i which is not the actual 'position' in the list
+        offset := f32(count+1) * (gap + font_size)
+
+        buf: [64]u8
+        length := copy_from_string(buf[:], name)
+        buf[length] = '\x00'
+        length += 1
+
+        bounds := ut.Bounds(f32) {
+            x = render_command.boundingBox.x,
+            y = render_command.boundingBox.y + offset + f32(render_info.inner_padding)-f32(render_info.gap)/2,
+            width = render_command.boundingBox.width,
+            height = f32(render_info.font_size)+f32(render_info.gap),
+        }
+
+        {
+            toggle_size := f32(10)
+            padding := (bounds.height - toggle_size) / 2
+
+            rect := rl.Rectangle {
+                x = bounds.x + bounds.width - toggle_size - padding,
+                y = bounds.y + padding,
+                width = toggle_size,
+                height = toggle_size,
+            }
+
+            if value {
+                rl.DrawRectangleRec(rect, auto_cast ut.get_contrasting_color(render_info.back_color))
+            } else {
+                rl.DrawRectangleRec(rect, auto_cast ut.change_opacity(ut.get_contrasting_color(render_info.back_color), 20))
+            }
+        }
+
+        if ut.position_within_bounds(auto_cast rl.GetMousePosition(), bounds) {
+            rl.DrawRectangleRec(transmute(rl.Rectangle)bounds, auto_cast ut.change_opacity(ut.get_contrasting_color(render_info.back_color), 20))
+
+            if rl.IsMouseButtonPressed(.LEFT) {
+                set_bit(dropdown_input.current, bit_index, !value)
+            }
+        }
+
+        rl.DrawTextEx(
+            get_font(&font_table, 0, u16(render_info.font_size)), 
+            strings.unsafe_string_to_cstring(string(buf[:length])),
+            { f32(padding + render_command.boundingBox.x), f32(render_command.boundingBox.y + offset + f32(render_info.inner_padding)) },
+            f32(font_size),
+            f32(render_info.letter_spacing),
+            auto_cast render_info.text_color,
+        )
+
+        i = next_i
+        count += 1
     }
 }
 
@@ -303,44 +411,40 @@ render_multi_dropdown_input :: proc(
     frame_allocator: mem.Allocator,
     within: bool,
 ) {
-    new_str: string = ""
-
-    render_text_input(
-        &dropdown_active_info, auto_cast render_command.boundingBox, "", "", &new_str, 
-        proc(ptr: rawptr, new_str: string) { (cast(^string)ptr)^ = new_str }, 
-        editorui.CustomId {
-            type = .DropdownTextInput,
-            value = {
-                input_index = input_index,
-            }
-        }, text_render_info, allocator, frame_allocator, within
-    )
-
-    if new_str != "" {
-        ui.active_data = editorui.MultiDropdown {
-            search_string = new_str,
-            selected = 0,
+    id := editorui.CustomId {
+        type = .DropdownTextInput,
+        value = {
+            input_index = input_index,
         }
-        ui.active_id = editorui.custom_input_id(input_index)
     }
-
+    
     active := editorui.custom_input_id(input_index) == ui.active_id
+    text_data: ^editorui.TextInput
 
     if active {
-        multi_dropdown := ui.active_data.(editorui.MultiDropdown)
+        multi_dropdown := &ui.active_data.(editorui.MultiDropdown)
+        text_data = &multi_dropdown.text
+    } else {
+        empty: editorui.TextInput
+        text_data = &empty
+    }
+    
+    focus, commit := render_text_input(
+        text_data,
+        active,
+        transmute(ut.Bounds(f32))render_command.boundingBox, 
+        "", "", 
+        text_render_info, 
+        allocator,
+        frame_allocator,
+        within
+    )
 
-        for i in 0..<len(dropdown_input.enum_names) {
-            name := dropdown_input.enum_names[i]
-            value := dropdown_input.enum_values[i]
-
-            trimmed_sub := strings.trim(multi_dropdown.search_string, " \n\x00")
-
-            lower_name := strings.to_lower(name, frame_allocator)
-            lower_sub := strings.to_lower(trimmed_sub, frame_allocator)
-
-            if strings.index(lower_name, lower_sub) >= 0 {
-                
-            }
+    if focus {
+        ui.active_id = editorui.custom_input_id(input_index)
+        ui.active_data = editorui.MultiDropdown {
+            text = text_data^,
+            selected = 0,
         }
     }
 }
@@ -375,7 +479,7 @@ render_custom_widget :: proc(
                 vertical = true,
             }
         }) {
-            editor_ui.render_game.fn(editor_ui.render_game.data, auto_cast render_command.boundingBox, custom_id.value.gameview_id)
+            editor_ui.render_game.fn(editor_ui.render_game.data, transmute(ut.Bounds(f32))render_command.boundingBox, custom_id.value.gameview_id)
             clay.SetCurrentContext(editor_ui.editor_context)
         }
     case .DropdownFloatingMenu:
@@ -395,7 +499,7 @@ render_custom_widget :: proc(
         case ed.Dropdown(u64):
             render_dropdown_floating_menu(editor_ui, render_command, input_data, input_index, render_infos.dropdown, within)
         case ed.MultiDropdown:
-            render_multi_dropdown_floating_menu(editor_ui, render_command, input_data, input_index, render_infos.dropdown, within)
+            render_multi_dropdown_floating_menu(editor_ui, render_command, input_data, input_index, render_infos.dropdown, frame_allocator, within)
         case:
             unreachable()
         }
@@ -418,7 +522,7 @@ render_custom_widget :: proc(
         case ed.Dropdown(u64):
             render_dropdown_input(editor_ui, render_command, input_data, input_index, render_infos.dropdown, within)
         case ed.Toggle:
-            within_bounds := ut.position_within_bounds(rl.GetMousePosition(), auto_cast render_command.boundingBox)
+            within_bounds := ut.position_within_bounds(rl.GetMousePosition(), transmute(ut.Bounds(f32))render_command.boundingBox)
             if within && within_bounds && rl.IsMouseButtonPressed(.LEFT) {
                 input_data.current^ = !input_data.current^
             }
@@ -428,22 +532,29 @@ render_custom_widget :: proc(
                 rl.DrawRectangleRec(auto_cast render_command.boundingBox, auto_cast render_infos.toggle.false_color)
             }
         case ed.TextInputString:
-            render_text_input(
-                &editor_ui.active, 
-                auto_cast render_command.boundingBox, 
-                input_data.placeholder, 
-                input_data.text == nil ? "" : input_data.text^, 
-                cast(rawptr)input_data.text, 
-                proc(str: rawptr, new_str: string) {
-                    old_string: ^string = cast(^string)str
-                    old_string^ = new_str
-                }, 
-                editorui.custom_input_id(input_index), 
-                render_infos.text, 
-                allocator, 
-                frame_allocator, 
+            active := editorui.custom_is_input(editor_ui.active_id, input_index)
+            text_input := editorui.TextInput {}
+
+            focus, commit := render_text_input(
+                &text_input,
+                active,
+                transmute(ut.Bounds(f32))render_command.boundingBox, 
+                "", "", 
+                editor_ui.render_infos.text, 
+                allocator,
+                frame_allocator,
                 within
             )
+
+            if focus {
+                editor_ui.active_id = editorui.custom_input_id(input_index)
+                editor_ui.active_data = text_input 
+            }
+            
+            if commit {
+                editor_ui.active_id = editorui.custom_input_id(max(ed.InputIndex))
+                input_data.text^ = string(text_input.buf[0:text_input.buf_len])
+            }
         case ed.TextInputMutableBuffer:
             unimplemented()
         case ed.NumberInput(f64):
@@ -469,20 +580,12 @@ TextInputType :: union {
 
 render_text_input :: proc(
     active_data: ^editorui.TextInput,
+    active: bool,
+
     bounding_box: ut.Bounds(f32),
 
     placeholder: string,
     text: string,
-
-    on_commit: struct {
-        ptr: rawptr,
-        fn: proc (rawptr, string),
-    },
-    
-    on_focus: struct {
-        ptr: rawptr,
-        fn: proc (rawptr),
-    },
 
     render_info: editorui.TextInputRenderInfo,
 
@@ -490,14 +593,13 @@ render_text_input :: proc(
     frame_allocator: mem.Allocator,
 
     within: bool,
-) {
+) -> (focus: bool, commit: bool) {
     mouse_within := ut.position_within_bounds(auto_cast rl.GetMousePosition(), auto_cast bounding_box)
-    rl.DrawRectangleRec(auto_cast bounding_box, auto_cast render_info.back_color)
-    active := active_data != nil
+    rl.DrawRectangleRec(transmute(rl.Rectangle)bounding_box, auto_cast render_info.back_color)
     padding := f32(render_info.padding)
 
     if active {
-        rl.DrawRectangleLinesEx(auto_cast bounding_box, 1, auto_cast render_info.border_color)
+        rl.DrawRectangleLinesEx(transmute(rl.Rectangle)bounding_box, 1, auto_cast render_info.border_color)
     }
 
     if mouse_within && within && rl.IsMouseButtonPressed(.LEFT) {
@@ -509,16 +611,16 @@ render_text_input :: proc(
 
         prev_str := text
 
-        copy_from_string(active_data.buf, prev_str)
-        active_data.buf_len = u8(len(prev_str))
+        copy_from_string(new_active_data.buf, prev_str)
+        new_active_data.buf_len = u8(len(prev_str))
 
-        if active_data.buf_len == 0 || active_data.buf[active_data.buf_len-1] != '\x00' {
-            active_data.buf[active_data.buf_len] = '\x00'
-            active_data.buf_len += 1
+        if new_active_data.buf_len == 0 || new_active_data.buf[new_active_data.buf_len-1] != '\x00' {
+            new_active_data.buf[new_active_data.buf_len] = '\x00'
+            new_active_data.buf_len += 1
         }
 
         active_data^ = new_active_data
-        on_focus.fn(on_focus.ptr)
+        focus = true
     }
 
     //TODOs: 
@@ -566,7 +668,7 @@ render_text_input :: proc(
                     active_data.buf[active_data.buf_len-1] = '\x00'
                 }
             case .ENTER:
-                on_commit.fn(on_commit.ptr, string(active_data.buf[0:active_data.buf_len]))
+                commit = true
             }
             
             key = rl.GetKeyPressed()
@@ -574,7 +676,7 @@ render_text_input :: proc(
     }
 
     if (rl.IsKeyPressed(.ESCAPE) || rl.IsMouseButtonPressed(.LEFT) && !mouse_within) && active {
-        on_commit.fn(on_commit.ptr, string(active_data.buf[0:active_data.buf_len]))
+        commit = true
     }
     
     empty := text == ""
@@ -587,7 +689,7 @@ render_text_input :: proc(
         text_color = render_info.text_color
     } else if empty {
         placeholder := strings.clone_to_cstring(placeholder, frame_allocator)
-        render_string = placeholder
+        render_string = placeholder 
         text_color = render_info.placeholder_text_color
     } else {
         text_cstring := strings.clone_to_cstring(text, frame_allocator)
@@ -617,6 +719,8 @@ render_text_input :: proc(
         f32(render_info.letter_spacing), 
         auto_cast text_color
     )
+
+    return focus, commit
 }
 
 scale_down_font_size :: proc(size: u16) -> u16 {
@@ -678,7 +782,7 @@ render_number_input :: proc(
 
     switch number_input.type {
         case .Slider:
-            mouse_within := ut.position_within_bounds(auto_cast rl.GetMousePosition(), auto_cast render_command.boundingBox)
+            mouse_within := ut.position_within_bounds(auto_cast rl.GetMousePosition(), transmute(ut.Bounds(f32))render_command.boundingBox)
             active := editorui.custom_is_input(editor_ui.active_id, input_index)
 
             if mouse_within && within && rl.IsMouseButtonPressed(.LEFT) {
@@ -781,40 +885,43 @@ render_number_input :: proc(
         case .Text:
             buf: [32]u8
             str := fmt_number(buf[:], number_input.current^)
-            active := editorui.custom_is_input(editor_ui.active_id, input_index)
-            text_input := editor_ui.active.active_data.(editorui.TextInput)
+            id := editorui.custom_input_id(input_index)
+            active := editor_ui.active_id == id
+            text_input := active ? &editor_ui.active_data.(editorui.TextInput) : &editorui.TextInput{}
             
-            render_text_input(
-                active ? &text_input : nil,
-                auto_cast render_command.boundingBox, 
+            focus, commit := render_text_input(
+                text_input,
+                active,
+                transmute(ut.Bounds(f32))render_command.boundingBox, 
                 number_input.placeholder,
                 string(str),
-                {
-                    cast(rawptr)number_input.current,
-                    proc(ptr: rawptr, new_string: string) {
-                        parse_str := new_string
-                        if new_string[len(new_string)-1] == '\x00' {
-                            parse_str = new_string[:len(new_string)-1]
-                        }
-
-                        current := cast(^T)ptr
-                        val, ok := parse_number(T, parse_str)
-
-                        if ok {
-                            current^ = val
-                        }
-                    },
-                },
-                {
-                    cast(rawptr)number_input.current,
-                    proc(ptr: rawptr) {
-                    },
-                },
                 text_render_info,
                 allocator,
                 frame_allocator,
                 within,
             )
+
+            if focus {
+                editor_ui.active_id = id
+                editor_ui.active_data = text_input^
+            }
+
+            if commit {
+                commit_string := transmute(string)text_input.buf[0:text_input.buf_len]
+
+                editor_ui.active_id = editorui.custom_input_id(max(ed.InputIndex))
+
+                parse_str := commit_string
+                if commit_string[len(commit_string)-1] == '\x00' {
+                    parse_str = commit_string[:len(commit_string)-1]
+                }
+
+                val, ok := parse_number(T, parse_str)
+
+                if ok {
+                    number_input.current^ = val
+                }
+            }
     }
 }
 
