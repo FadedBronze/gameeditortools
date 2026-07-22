@@ -10,7 +10,6 @@ import "core:math"
 import "core:mem"
 import "core:fmt"
 import "core:sort"
-import "core:testing"
 
 WorldViewport2D :: struct {
     world_to_screenspace_scale: f64 "text", 
@@ -224,45 +223,12 @@ place_tile :: proc(appdata: ^AppData, tile_grid: RectangleTileGrid, viewport_id:
     //tile_grid.tiles[tilegrid_position.y*int(tile_grid.columns)+tilegrid_position.x] = appdata.editor_settings.selected_tile
 }
 
-render_tiles :: proc(viewport: WorldViewport2D, tilegrid: RectangleTileGrid) {
-    mat := ut.create_matrix_from_transform(tilegrid.transform) * get_viewport_matrix(viewport)
-    b := tilegrid.bounds
-
-    for y in b.y..<b.height+b.y {
-        for x in b.x..<b.width+b.x {
-            pos := la.Vector2f64{f64(x), f64(y)}
-
-            viewport_bounds := ut.apply_matrix_to_bounds(mat, ut.Bounds(f64) {
-                x = pos.x,
-                y = pos.y,
-                width = 1,
-                height = 1,
-            })
-
-            tile_type := get_tile(tilegrid, {x, y})
-            color := ut.BLACK
-
-            switch tile_type {
-                case .Empty:
-                case .Red:
-                    color = ut.RED
-                case .Blue:
-                    color = ut.BLUE
-            }
-
-            rl.DrawRectangleRec(transmute(rl.Rectangle)ut.bounds_to_bounds(f32, viewport_bounds), auto_cast color)
-        }
-    }
-}
-
 render :: proc(appdata: rawptr, screen_rect: ut.Bounds(f32), id: editorui.ViewportIndex) {
     appdata: ^AppData = cast(^AppData)appdata
     viewport := &appdata.viewports[id]
     viewport.screen_rect = ut.bounds_to_bounds(f64, screen_rect)
 
     render_tile_grid_lines(viewport^, appdata.tilegrid)
-
-    render_tiles(viewport^, appdata.tilegrid)
 
     switch appdata.editor_settings.active_tool {
     case .CameraControl:
@@ -304,6 +270,9 @@ color_square :: proc(color: ut.Color) -> Sprite {
 set_tile_base :: proc(tilegrid: ^RectangleTileGrid, position: [2]i32, tile: TileType) {
     idx_y := int(tilegrid.bounds.width) * int(position.y - tilegrid.bounds.y)
     idx_x := int(position.x - tilegrid.bounds.x)
+    if tile != .Empty {
+        fmt.println(idx_y, idx_x)
+    }
     tilegrid.tiles[idx_y + idx_x] = tile
 }
 
@@ -317,78 +286,40 @@ set_tile :: proc(tilegrid: ^RectangleTileGrid, position: [2]i32, tile: TileType)
             tilegrid.bounds.width = position.x-tilegrid.bounds.x+1
         }
 
-        if position.x < tilegrid.bounds.x {
+        if position.x-tilegrid.bounds.x < 0 {
             increment := math.abs(position.x-tilegrid.bounds.x)
             tilegrid.bounds.width += increment
-            tilegrid.bounds.x = position.x
+            tilegrid.bounds.x = increment
         } 
 
         if position.y-tilegrid.bounds.y >= tilegrid.bounds.height {
             tilegrid.bounds.height = position.y-tilegrid.bounds.y+1
         }
 
-        if position.y < tilegrid.bounds.y {
+        if position.y-tilegrid.bounds.y < 0 {
             increment := math.abs(position.y-tilegrid.bounds.y)
             tilegrid.bounds.height += increment
-            tilegrid.bounds.y = position.y
+            tilegrid.bounds.y = increment
         }
 
-        old_tiles := tilegrid.tiles
         tilegrid.tiles = make([]TileType, tilegrid.bounds.width * tilegrid.bounds.height)
 
-        for x in old_bounds.x..<old_bounds.width+old_bounds.x {
-            for y in old_bounds.y..<old_bounds.height+old_bounds.y {
-                set_tile_base(tilegrid, {x, y}, get_tile_base(old_tiles, old_bounds.x, old_bounds.y, old_bounds.width, {x, y}))
+        for x in old_bounds.x..<old_bounds.width {
+            for y in old_bounds.y..<old_bounds.height {
+                set_tile_base(tilegrid, {x, y}, tile)
             }
         }
     }
-
-    fmt.println(tilegrid.bounds, position)
 
     // basic case
     set_tile_base(tilegrid, position, tile)
 }
 
-get_tile_base :: proc(tiles: []TileType, x, y, width: i32, position: [2]i32) -> TileType {
-    idx_y := int(width) * int(position.y - y)
-    idx_x := int(position.x - x)
-    return tiles[idx_y + idx_x]
-}
-
-get_tile :: proc(tilegrid: RectangleTileGrid, position: [2]i32) -> TileType {
+get_tile :: proc(tilegrid: ^RectangleTileGrid, position: [2]i32) -> TileType {
     if !ut.position_within_bounds(position, tilegrid.bounds) {
         return .Empty
     }
-    return get_tile_base(tilegrid.tiles, tilegrid.bounds.x, tilegrid.bounds.y, tilegrid.bounds.width, position)
-}
-
-@(test)
-create_tiles :: proc(t: ^testing.T) {
-    tilegrid := RectangleTileGrid {
-        width = 1,
-        height = 1,
-        transform = ut.TRANSFORM_IDENTITY_F64,
-    }
-    
-    set_tile(&tilegrid, {0, 0}, .Blue)
-    set_tile(&tilegrid, {-1, -1}, .Red)
-    set_tile(&tilegrid, {-2, -2}, .Blue)
-    set_tile(&tilegrid, {-3, -3}, .Red)
-    set_tile(&tilegrid, {1, 1}, .Red)
-    set_tile(&tilegrid, {5, 1}, .Blue)
-    set_tile(&tilegrid, {20, 20}, .Red)
-    set_tile(&tilegrid, {50, 0}, .Blue)
-    set_tile(&tilegrid, {50, 0}, .Red)
-
-    //fmt.println(appdata.tilegrid.bounds)
-    //for y in appdata.tilegrid.bounds.y..<appdata.tilegrid.bounds.height+appdata.tilegrid.bounds.y {
-    //    for x in appdata.tilegrid.bounds.x..<appdata.tilegrid.bounds.width+appdata.tilegrid.bounds.x {
-    //        fmt.printf("%d ", get_tile(&appdata.tilegrid, {x, y}))
-    //    }
-    //    fmt.println()
-    //}
-
-    testing.expect(t, get_tile(tilegrid, {50, 0}) == .Red)
+    return tilegrid.tiles[int(tilegrid.bounds.width) * int(position.y) + int(position.x)]
 }
 
 init_game :: proc(appdata: ^AppData) {
@@ -398,8 +329,23 @@ init_game :: proc(appdata: ^AppData) {
         transform = ut.TRANSFORM_IDENTITY_F64,
     }
     
-    set_tile(&appdata.tilegrid, {0, 0}, .Blue)
-    set_tile(&appdata.tilegrid, {-1, -1}, .Red)
+    //set_tile(&appdata.tilegrid, {0, 0}, .Blue)
+    set_tile(&appdata.tilegrid, {2, 1}, .Red)
+    //set_tile(&appdata.tilegrid, {5, 1}, .Blue)
+    //set_tile(&appdata.tilegrid, {20, 20}, .Red)
+
+    for y in appdata.tilegrid.bounds.y..<appdata.tilegrid.bounds.height {
+        for x in appdata.tilegrid.bounds.x..<appdata.tilegrid.bounds.width {
+            fmt.printf("%d ", get_tile(&appdata.tilegrid, {x, y}))
+        }
+        fmt.println()
+    }
+
+    assert(get_tile(&appdata.tilegrid, {500, 0}) == .Red)
+
+    //for obj in appdata.objects.game_objects[:appdata.objects.next_free_game_object-1] {
+    //    fmt.println(obj)
+    //}
 }
 
 initialize_app :: proc(appdata: ^AppData, allocator: mem.Allocator) {
