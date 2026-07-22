@@ -74,7 +74,7 @@ Views :: enum {
 
 EditorSettings :: struct {
     open_views: bit_set[Views] "dropdown",
-    selected_tile: TileType "text",
+    selected_tile: TileType "dropdown",
     active_tool: enum {
         CameraControl,
         TileBrush,
@@ -207,21 +207,23 @@ screen_to_world_space :: proc(viewport: WorldViewport2D, screen_position: la.Vec
     return ut.apply_matrix_to_point(screen_to_world_mat, screen_position)
 } 
 
-place_tile :: proc(appdata: ^AppData, tile_grid: RectangleTileGrid, viewport_id: editorui.ViewportIndex) {
+place_tile :: proc(appdata: ^AppData, viewport_id: editorui.ViewportIndex, allocator: mem.Allocator) {
     viewport := &appdata.viewports[viewport_id]
+    tile_grid := &appdata.tilegrid
 
     mouse_pos := rl.GetMousePosition()
     // TODO: needs to be replaced with pointer over from editor since ui may need to go over
     within := ut.position_within_bounds(la.Vector2f64{f64(mouse_pos.x), f64(mouse_pos.y)}, viewport.screen_rect)
     world_mouse_pos := screen_to_world_space(viewport^, auto_cast mouse_pos)
 
-    tilegrid_position := [2]int{
-        int(math.mod_f64(world_mouse_pos.x, tile_grid.width)),
-        int(math.mod_f64(world_mouse_pos.y, tile_grid.height))
+    tilegrid_position := [2]i32{
+        i32(math.mod_f64(world_mouse_pos.x, tile_grid.width)),
+        i32(math.mod_f64(world_mouse_pos.y, tile_grid.height))
     }
 
-    //TODO
-    //tile_grid.tiles[tilegrid_position.y*int(tile_grid.columns)+tilegrid_position.x] = appdata.editor_settings.selected_tile
+    if rl.IsMouseButtonPressed(.LEFT) {
+        set_tile(tile_grid, tilegrid_position, appdata.editor_settings.selected_tile, allocator)
+    }
 }
 
 render_tiles :: proc(viewport: WorldViewport2D, tilegrid: RectangleTileGrid) {
@@ -268,7 +270,7 @@ render :: proc(appdata: rawptr, screen_rect: ut.Bounds(f32), id: editorui.Viewpo
     case .CameraControl:
         drag_camera(appdata, id)
     case .TileBrush:
-        //place_tile(appdata, id)
+        place_tile(appdata, id, mem.arena_allocator(&appdata.init_allocator))
     }
 
     clay.SetCurrentContext(appdata.ui_context)
@@ -307,7 +309,7 @@ set_tile_base :: proc(tilegrid: ^RectangleTileGrid, position: [2]i32, tile: Tile
     tilegrid.tiles[idx_y + idx_x] = tile
 }
 
-set_tile :: proc(tilegrid: ^RectangleTileGrid, position: [2]i32, tile: TileType) {
+set_tile :: proc(tilegrid: ^RectangleTileGrid, position: [2]i32, tile: TileType, allocator: mem.Allocator = context.allocator) {
     // resize case
     if !ut.position_within_bounds(position, tilegrid.bounds) {
         old_bounds := tilegrid.bounds
@@ -334,7 +336,7 @@ set_tile :: proc(tilegrid: ^RectangleTileGrid, position: [2]i32, tile: TileType)
         }
 
         old_tiles := tilegrid.tiles
-        tilegrid.tiles = make([]TileType, tilegrid.bounds.width * tilegrid.bounds.height)
+        tilegrid.tiles = make([]TileType, tilegrid.bounds.width * tilegrid.bounds.height, allocator)
 
         for x in old_bounds.x..<old_bounds.width+old_bounds.x {
             for y in old_bounds.y..<old_bounds.height+old_bounds.y {
@@ -342,8 +344,6 @@ set_tile :: proc(tilegrid: ^RectangleTileGrid, position: [2]i32, tile: TileType)
             }
         }
     }
-
-    fmt.println(tilegrid.bounds, position)
 
     // basic case
     set_tile_base(tilegrid, position, tile)
@@ -362,41 +362,14 @@ get_tile :: proc(tilegrid: RectangleTileGrid, position: [2]i32) -> TileType {
     return get_tile_base(tilegrid.tiles, tilegrid.bounds.x, tilegrid.bounds.y, tilegrid.bounds.width, position)
 }
 
-@(test)
-create_tiles :: proc(t: ^testing.T) {
-    tilegrid := RectangleTileGrid {
-        width = 1,
-        height = 1,
-        transform = ut.TRANSFORM_IDENTITY_F64,
-    }
-    
-    set_tile(&tilegrid, {0, 0}, .Blue)
-    set_tile(&tilegrid, {-1, -1}, .Red)
-    set_tile(&tilegrid, {-2, -2}, .Blue)
-    set_tile(&tilegrid, {-3, -3}, .Red)
-    set_tile(&tilegrid, {1, 1}, .Red)
-    set_tile(&tilegrid, {5, 1}, .Blue)
-    set_tile(&tilegrid, {20, 20}, .Red)
-    set_tile(&tilegrid, {50, 0}, .Blue)
-    set_tile(&tilegrid, {50, 0}, .Red)
-
-    //fmt.println(appdata.tilegrid.bounds)
-    //for y in appdata.tilegrid.bounds.y..<appdata.tilegrid.bounds.height+appdata.tilegrid.bounds.y {
-    //    for x in appdata.tilegrid.bounds.x..<appdata.tilegrid.bounds.width+appdata.tilegrid.bounds.x {
-    //        fmt.printf("%d ", get_tile(&appdata.tilegrid, {x, y}))
-    //    }
-    //    fmt.println()
-    //}
-
-    testing.expect(t, get_tile(tilegrid, {50, 0}) == .Red)
-}
-
 init_game :: proc(appdata: ^AppData) {
     appdata.tilegrid = RectangleTileGrid {
         width = 1,
         height = 1,
         transform = ut.TRANSFORM_IDENTITY_F64,
     }
+
+    context.allocator = mem.arena_allocator(&appdata.init_allocator)
     
     set_tile(&appdata.tilegrid, {0, 0}, .Blue)
     set_tile(&appdata.tilegrid, {-1, -1}, .Red)
@@ -431,4 +404,33 @@ initialize_app :: proc(appdata: ^AppData, allocator: mem.Allocator) {
 
     // game
     init_game(appdata)
+}
+
+@(test)
+create_tiles :: proc(t: ^testing.T) {
+    tilegrid := RectangleTileGrid {
+        width = 1,
+        height = 1,
+        transform = ut.TRANSFORM_IDENTITY_F64,
+    }
+    
+    set_tile(&tilegrid, {0, 0}, .Blue)
+    set_tile(&tilegrid, {-1, -1}, .Red)
+    set_tile(&tilegrid, {-2, -2}, .Blue)
+    set_tile(&tilegrid, {-3, -3}, .Red)
+    set_tile(&tilegrid, {1, 1}, .Red)
+    set_tile(&tilegrid, {5, 1}, .Blue)
+    set_tile(&tilegrid, {20, 20}, .Red)
+    set_tile(&tilegrid, {50, 0}, .Blue)
+    set_tile(&tilegrid, {50, 0}, .Red)
+
+    //fmt.println(appdata.tilegrid.bounds)
+    //for y in appdata.tilegrid.bounds.y..<appdata.tilegrid.bounds.height+appdata.tilegrid.bounds.y {
+    //    for x in appdata.tilegrid.bounds.x..<appdata.tilegrid.bounds.width+appdata.tilegrid.bounds.x {
+    //        fmt.printf("%d ", get_tile(&appdata.tilegrid, {x, y}))
+    //    }
+    //    fmt.println()
+    //}
+
+    testing.expect(t, get_tile(tilegrid, {50, 0}) == .Red)
 }

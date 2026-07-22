@@ -936,6 +936,7 @@ render_editor : editorui.RenderFunction = proc(
 
     for !rl.WindowShouldClose() {
         dt := rl.GetFrameTime()
+
         mouse_position := rl.GetMousePosition()
         mouse_down := rl.IsMouseButtonDown(.LEFT)
 
