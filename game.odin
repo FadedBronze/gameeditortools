@@ -20,41 +20,39 @@ WorldViewport2D :: struct {
     camera_rotation: f64 "slider min(0) max(6.283)",
 }
 
+GridPosition :: distinct [2]i32
+
+Move :: struct {
+    momentum_required: u8,
+}
+
 Player :: struct {
-    sprite: Sprite,
+    position: GridPosition,
+    momentum: u8,
+}
+
+Tile :: struct {
+    type: TileType,
+    height: u8, // usually 0 or 1
 }
 
 TileType :: enum {
     Empty,
-    Red,
-    Blue,
+    Player,
+    Shotgunner,
+    Sniper,
+    Elevation,
 }
 
-RectangleTileGrid :: struct {
+RectangleTileGrid :: struct(T: typeid) {
     width: f64 "text",
     height: f64 "text",
     bounds: ut.Bounds(i32) "group",
-    tiles: []TileType,
+    tiles: []T,
     transform: ut.Transform(f64) "group" 
 }
 
 RootGameObject :: struct {}
-
-Tile :: struct {
-    sprite: Sprite
-}
-
-//GameObject :: struct {
-//    transform: ut.Transform(f64),
-//    z_index: u16,
-//    data: union {
-//        RootGameObject,
-//        Player,
-//        Tile,
-//        RectangleTileGrid,
-//    },
-//    children: []ut.ObjectId,
-//}
 
 MAX_GAMEOBJECTS :: 10000
 INIT_MEMORY_BUFFER_SIZE :: 10000000
@@ -81,12 +79,68 @@ EditorSettings :: struct {
     } "dropdown",
 }
 
+SpriteSheet :: struct(T: typeid) {
+    texture: rl.Texture,
+    bounds: ut.Bounds(f32),
+    divisions_x: i32,
+    divisions_y: i32,
+}
+
+FirstGameSheetId :: enum {
+    ChoosePlus,
+    Sniper,
+    Shotgunner,
+    Elevation,
+    Plane,
+    DoubleJump,
+    SwapReverse,
+    Launch, 
+    Slip,
+    Heart,
+    PortalIn,
+    PortalOut,
+    PlayerHappy,
+    PlayerShocked,
+    SuperDown,
+    Flex,
+    Around,
+    Slot,
+    Spikes,
+    Ammo,
+    Boss,
+    Shield,
+    Bat,
+    Skateboard,
+    Direction,
+}
+
+draw_sprite :: proc(id: $T, sheet: SpriteSheet(T), dest: ut.Bounds(f32)) {
+    index := i32(id)
+
+    column := index % sheet.divisions_x
+    row := index / sheet.divisions_x
+
+    cell_size_x := sheet.bounds.width / f32(sheet.divisions_x)
+    cell_size_y := sheet.bounds.height / f32(sheet.divisions_y)
+
+    x := sheet.bounds.x + f32(column) * cell_size_x
+    y := sheet.bounds.y + f32(row) * cell_size_y
+
+    width := cell_size_x
+    height := cell_size_y
+
+    rect := rl.Rectangle { x, y, width, height }
+    fmt.println(rect)
+    //rl.DrawTextureRec(sheet.texture, rect, {dest.x, dest.y}, rl.WHITE)
+    rl.DrawTexturePro(sheet.texture, rect, {dest.x, dest.y, dest.width, dest.height}, {0, 0}, 0, rl.WHITE)
+}
+
 AppData :: struct {
     delta_time: f32,
     ui_context: ^clay.Context,
     viewports: [2]WorldViewport2D,
 
-    tilegrid: RectangleTileGrid,
+    tilegrid: RectangleTileGrid(Tile),
     
     viewport_drag: ViewportDrag,
 
@@ -96,22 +150,15 @@ AppData :: struct {
     init_buffer: []u8,
     init_allocator: mem.Arena,
 
+    sprite_sheet: SpriteSheet(FirstGameSheetId),
+
     //draw_callbacks: []DrawCallback,
     //draw_callback_next_free: u32,
 
     editor_settings: EditorSettings,
 }
 
-RectangleSprite :: struct {
-    rect: ut.Bounds(f64),
-    color: ut.Color,
-}
-
-Sprite :: union {
-    RectangleSprite
-}
-
-render_tile_grid_lines :: proc(viewport: WorldViewport2D, tilegrid: RectangleTileGrid) { 
+render_tile_grid_lines :: proc(viewport: WorldViewport2D, tilegrid: RectangleTileGrid($T)) { 
     mat := ut.create_matrix_from_transform(tilegrid.transform) * get_viewport_matrix(viewport)
     inverse := la.matrix3_inverse(mat)
 
@@ -143,7 +190,7 @@ render_tile_grid_lines :: proc(viewport: WorldViewport2D, tilegrid: RectangleTil
         p1 = ut.apply_matrix_to_point(mat, p1)
         p2 = ut.apply_matrix_to_point(mat, p2)
 
-        rl.DrawLineEx(auto_cast p1, auto_cast p2, 1, auto_cast ut.WHITE/3)
+        rl.DrawLineEx(auto_cast p1, auto_cast p2, 1, auto_cast ut.BLACK/3)
     }
     
     for i in -lines_y/2..<lines_y/2 {
@@ -155,7 +202,7 @@ render_tile_grid_lines :: proc(viewport: WorldViewport2D, tilegrid: RectangleTil
         p1 = ut.apply_matrix_to_point(mat, p1)
         p2 = ut.apply_matrix_to_point(mat, p2)
 
-        rl.DrawLineEx(auto_cast p1, auto_cast p2, 1, auto_cast ut.WHITE/3)
+        rl.DrawLineEx(auto_cast p1, auto_cast p2, 1, auto_cast ut.BLACK/3)
     }
 }
 
@@ -193,6 +240,14 @@ drag_camera :: proc(appdata: ^AppData, index: editorui.ViewportIndex) {
     if rl.IsMouseButtonReleased(.LEFT) && appdata.viewport_drag.active == index {
         appdata.viewport_drag.active = max(editorui.ViewportIndex)
     }
+}
+
+zoom_camera :: proc(appdata: ^AppData, index: editorui.ViewportIndex) {
+    viewport := &appdata.viewports[index]
+
+    mouse_pos := rl.GetMousePosition()
+
+    within := ut.position_within_bounds(la.Vector2f64{f64(mouse_pos.x), f64(mouse_pos.y)}, viewport.screen_rect)
 
     if within {
         viewport.camera_scale.x *= 1+f64(rl.GetMouseWheelMove() * appdata.delta_time * 100)
@@ -217,16 +272,19 @@ place_tile :: proc(appdata: ^AppData, viewport_id: editorui.ViewportIndex, alloc
     world_mouse_pos := screen_to_world_space(viewport^, auto_cast mouse_pos)
 
     tilegrid_position := [2]i32{
-        i32(math.mod_f64(world_mouse_pos.x, tile_grid.width)),
-        i32(math.mod_f64(world_mouse_pos.y, tile_grid.height))
+        i32(math.floor(world_mouse_pos.x / f64(tile_grid.width)) * tile_grid.width),
+        i32(math.floor(world_mouse_pos.y / f64(tile_grid.height)) * tile_grid.height)
     }
 
-    if rl.IsMouseButtonPressed(.LEFT) {
-        set_tile(tile_grid, tilegrid_position, appdata.editor_settings.selected_tile, allocator)
+    if rl.IsMouseButtonPressed(.LEFT) && within {
+        //TODO: ?
+        set_tile(tile_grid, tilegrid_position, Tile {
+            type = appdata.editor_settings.selected_tile,
+        }, allocator)
     }
 }
 
-render_tiles :: proc(viewport: WorldViewport2D, tilegrid: RectangleTileGrid) {
+render_tiles :: proc(viewport: WorldViewport2D, tilegrid: RectangleTileGrid(Tile), spritesheet: SpriteSheet(FirstGameSheetId)) {
     mat := ut.create_matrix_from_transform(tilegrid.transform) * get_viewport_matrix(viewport)
     b := tilegrid.bounds
 
@@ -241,18 +299,24 @@ render_tiles :: proc(viewport: WorldViewport2D, tilegrid: RectangleTileGrid) {
                 height = 1,
             })
 
-            tile_type := get_tile(tilegrid, {x, y})
-            color := ut.BLACK
+            tile := get_tile(tilegrid, {x, y})
+            id: FirstGameSheetId
 
-            switch tile_type {
-                case .Empty:
-                case .Red:
-                    color = ut.RED
-                case .Blue:
-                    color = ut.BLUE
+            switch tile.type {
+            case .Empty:
+            case .Player:
+                id = .PlayerHappy
+            case .Shotgunner:
+                id = .Shotgunner
+            case .Sniper:
+                id = .Sniper
+            case .Elevation:
+                id = .Elevation
             }
-
-            rl.DrawRectangleRec(transmute(rl.Rectangle)ut.bounds_to_bounds(f32, viewport_bounds), auto_cast color)
+            
+            if tile.type != .Empty {
+                draw_sprite(id, spritesheet, ut.bounds_to_bounds(f32, viewport_bounds))
+            }
         }
     }
 }
@@ -262,16 +326,28 @@ render :: proc(appdata: rawptr, screen_rect: ut.Bounds(f32), id: editorui.Viewpo
     viewport := &appdata.viewports[id]
     viewport.screen_rect = ut.bounds_to_bounds(f64, screen_rect)
 
-    render_tile_grid_lines(viewport^, appdata.tilegrid)
+    rl.DrawRectangleRec(transmute(rl.Rectangle)screen_rect, rl.WHITE)
 
-    render_tiles(viewport^, appdata.tilegrid)
+    render_tile_grid_lines(viewport^, appdata.tilegrid)
+    render_tiles(viewport^, appdata.tilegrid, appdata.sprite_sheet)
 
     switch appdata.editor_settings.active_tool {
     case .CameraControl:
         drag_camera(appdata, id)
+        zoom_camera(appdata, id)
     case .TileBrush:
-        place_tile(appdata, id, mem.arena_allocator(&appdata.init_allocator))
+        if rl.IsKeyDown(.LEFT_CONTROL) {
+            drag_camera(appdata, id)
+        } else {
+            place_tile(appdata, id, mem.arena_allocator(&appdata.init_allocator))
+        }
+        zoom_camera(appdata, id)
     }
+
+
+    //rl.DrawTextureRec(appdata.sprite_sheet.texture, rl.Rectangle {
+    //    0, 0, 100, 100,
+    //}, {300, 25}, rl.WHITE)
 
     clay.SetCurrentContext(appdata.ui_context)
     clay.BeginLayout()
@@ -291,25 +367,18 @@ get_viewport_matrix :: proc(viewport: WorldViewport2D) -> la.Matrix3x3f64 {
     return la.matrix_mul(view_matrix, la.matrix_mul(camera_matrix, camera_offset))
 }
 
-color_square :: proc(color: ut.Color) -> Sprite {
-    return RectangleSprite {
-        color = color,
-        rect = ut.Bounds(f64) {
-            height = 1,
-            width = 1,
-            x = -0.5,
-            y = -0.5,
-        },
-    }
-}
-
-set_tile_base :: proc(tilegrid: ^RectangleTileGrid, position: [2]i32, tile: TileType) {
+set_tile_base :: proc(tilegrid: ^RectangleTileGrid($T), position: [2]i32, tile: T) {
     idx_y := int(tilegrid.bounds.width) * int(position.y - tilegrid.bounds.y)
     idx_x := int(position.x - tilegrid.bounds.x)
     tilegrid.tiles[idx_y + idx_x] = tile
 }
 
-set_tile :: proc(tilegrid: ^RectangleTileGrid, position: [2]i32, tile: TileType, allocator: mem.Allocator = context.allocator) {
+set_tile :: proc(tilegrid: ^RectangleTileGrid($T), position: [2]i32, tile: T, allocator: mem.Allocator = context.allocator) {
+    empty := T{}
+    if get_tile(tilegrid^, position) == empty  && tile == empty {
+        return
+    }
+
     // resize case
     if !ut.position_within_bounds(position, tilegrid.bounds) {
         old_bounds := tilegrid.bounds
@@ -336,7 +405,7 @@ set_tile :: proc(tilegrid: ^RectangleTileGrid, position: [2]i32, tile: TileType,
         }
 
         old_tiles := tilegrid.tiles
-        tilegrid.tiles = make([]TileType, tilegrid.bounds.width * tilegrid.bounds.height, allocator)
+        tilegrid.tiles = make([]T, tilegrid.bounds.width * tilegrid.bounds.height, allocator)
 
         for x in old_bounds.x..<old_bounds.width+old_bounds.x {
             for y in old_bounds.y..<old_bounds.height+old_bounds.y {
@@ -349,30 +418,47 @@ set_tile :: proc(tilegrid: ^RectangleTileGrid, position: [2]i32, tile: TileType,
     set_tile_base(tilegrid, position, tile)
 }
 
-get_tile_base :: proc(tiles: []TileType, x, y, width: i32, position: [2]i32) -> TileType {
+get_tile_base :: proc(tiles: []$T, x, y, width: i32, position: [2]i32) -> T {
     idx_y := int(width) * int(position.y - y)
     idx_x := int(position.x - x)
     return tiles[idx_y + idx_x]
 }
 
-get_tile :: proc(tilegrid: RectangleTileGrid, position: [2]i32) -> TileType {
+get_tile :: proc(tilegrid: RectangleTileGrid($T), position: [2]i32) -> T {
     if !ut.position_within_bounds(position, tilegrid.bounds) {
-        return .Empty
+        return T{}
     }
     return get_tile_base(tilegrid.tiles, tilegrid.bounds.x, tilegrid.bounds.y, tilegrid.bounds.width, position)
 }
 
+create_first_game_sheet :: proc() -> SpriteSheet(FirstGameSheetId) {
+    texture := rl.LoadTexture("./assets/firstgamesheet.png")
+    return SpriteSheet(FirstGameSheetId) {
+        texture = texture,
+        divisions_x = 6,
+        divisions_y = 5,
+        bounds = ut.Bounds(f32) {
+            x = 55,
+            y = 50,
+            width = 535,
+            height = 440,
+        }
+    }
+}
+
 init_game :: proc(appdata: ^AppData) {
-    appdata.tilegrid = RectangleTileGrid {
+    appdata.tilegrid = RectangleTileGrid(Tile) {
         width = 1,
         height = 1,
         transform = ut.TRANSFORM_IDENTITY_F64,
     }
 
+    appdata.sprite_sheet = create_first_game_sheet()
+
     context.allocator = mem.arena_allocator(&appdata.init_allocator)
     
-    set_tile(&appdata.tilegrid, {0, 0}, .Blue)
-    set_tile(&appdata.tilegrid, {-1, -1}, .Red)
+    //set_tile(&appdata.tilegrid, {0, 0}, .Blue)
+    //set_tile(&appdata.tilegrid, {-1, -1}, .Red)
 }
 
 initialize_app :: proc(appdata: ^AppData, allocator: mem.Allocator) {
@@ -408,21 +494,27 @@ initialize_app :: proc(appdata: ^AppData, allocator: mem.Allocator) {
 
 @(test)
 create_tiles :: proc(t: ^testing.T) {
-    tilegrid := RectangleTileGrid {
+    Example :: enum {
+        Empty,
+        Red,
+        Blue,
+    }
+
+    tilegrid := RectangleTileGrid(Example) {
         width = 1,
         height = 1,
         transform = ut.TRANSFORM_IDENTITY_F64,
     }
     
-    set_tile(&tilegrid, {0, 0}, .Blue)
-    set_tile(&tilegrid, {-1, -1}, .Red)
-    set_tile(&tilegrid, {-2, -2}, .Blue)
-    set_tile(&tilegrid, {-3, -3}, .Red)
-    set_tile(&tilegrid, {1, 1}, .Red)
-    set_tile(&tilegrid, {5, 1}, .Blue)
-    set_tile(&tilegrid, {20, 20}, .Red)
-    set_tile(&tilegrid, {50, 0}, .Blue)
-    set_tile(&tilegrid, {50, 0}, .Red)
+    set_tile(&tilegrid, {0, 0}, Example.Blue)
+    set_tile(&tilegrid, {-1, -1}, Example.Red)
+    set_tile(&tilegrid, {-2, -2}, Example.Blue)
+    set_tile(&tilegrid, {-3, -3}, Example.Red)
+    set_tile(&tilegrid, {1, 1}, Example.Red)
+    set_tile(&tilegrid, {5, 1}, Example.Blue)
+    set_tile(&tilegrid, {20, 20}, Example.Red)
+    set_tile(&tilegrid, {50, 0}, Example.Blue)
+    set_tile(&tilegrid, {50, 0}, Example.Red)
 
     //fmt.println(appdata.tilegrid.bounds)
     //for y in appdata.tilegrid.bounds.y..<appdata.tilegrid.bounds.height+appdata.tilegrid.bounds.y {

@@ -153,6 +153,9 @@ error_handler :: proc "c" (errorData: clay.ErrorData) {
 }
 
 main :: proc() { 
+    rl.InitWindow(1080, 720, "yay")
+    rl.SetWindowState({.WINDOW_RESIZABLE})
+
     editor_ui: editorui.EditorUI = editorui.create_editorui(editorui.EditorUITheme {
         font_size = 16,
         letter_spacing = 1,

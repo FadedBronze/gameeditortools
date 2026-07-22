@@ -929,8 +929,6 @@ render_editor : editorui.RenderFunction = proc(
     editor_ui: ^editorui.EditorUI, 
     userdata: rawptr,
 ) {
-    rl.InitWindow(1080, 720, "yay")
-    rl.SetWindowState({.WINDOW_RESIZABLE})
     //TODO
     init_font_table(&font_table, context.allocator)
 
