@@ -57,6 +57,11 @@ create_layout :: proc(
                     label := "Tilegrid"
                     editorui.render_structure_panel(editor_ui, label, &appdata.tilegrid, label)
                 }
+                
+                if .Player in appdata.editor_settings.open_views {
+                    label := "Player"
+                    editorui.render_structure_panel(editor_ui, label, &appdata.player, label)
+                }
             }
 
             if clay.UI()({ 
