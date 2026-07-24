@@ -24,33 +24,38 @@ GridPosition :: [2]i32
 
 MoveType :: enum {
     Walk,
+    Dodge
 }
 
 Direction :: enum {
     Up,
-    Down,
     Left,
-    Right
+    Down,
+    Right,
 }
 
 Move :: struct {
-    type: MoveType,
-    direction: Direction,
-    momentum_required: u8,
-    energy_cost: u8,
+    type: MoveType "dropdown",
+    sprite: FirstGameSheetId,
+    sprite_rotation_offset: f64,
+    momentum_required: u8 "text",
+    energy_cost: u8 "text",
+    
+    direction: Direction "dropdown",
 }
 
-Player :: struct {
-    move_queue: [32]Move,
-    moves_queued: u8,
-    energy_capacity: u8 "text",
-    momentum: u8 "text",
-    position: GridPosition "text",
+// only translation animation for now
+Animation :: struct {
+    flags: bit_set[enum {Active, Vertical, Completed}],
+    amount: f64,
+    progress: f64,
 }
 
 Tile :: struct {
+    flags: bit_set[enum { Used, PerformPlayerActions }] "dropdown",
     platform: PlatformTileType "dropdown",
-    entity: EntityTileType "dropdown",
+    sprite: FirstGameSheetId "dropdown",
+    animating: Animation,
 }
 
 EntityTileType :: enum {
@@ -72,8 +77,6 @@ RectangleTileGrid :: struct(T: typeid) {
     transform: ut.Transform(f64) "group" 
 }
 
-RootGameObject :: struct {}
-
 MAX_GAMEOBJECTS :: 10000
 INIT_MEMORY_BUFFER_SIZE :: 10000000
 FRAME_MEMORY_BUFFER_SIZE :: 5000
@@ -89,12 +92,14 @@ Views :: enum {
     WorldViewports,    
     TileEditor,
     Player,
+    ActionQueue,
 }
 
 EditorSettings :: struct {
     open_views: bit_set[Views] "dropdown",
     selected_tile: Tile "group",
     active_tool: enum {
+        GameTool,
         CameraControl,
         TileBrush,
     } "dropdown",
@@ -135,7 +140,7 @@ FirstGameSheetId :: enum {
     Direction,
 }
 
-draw_sprite :: proc(id: $T, sheet: SpriteSheet(T), dest: ut.Bounds(f32)) {
+draw_sprite :: proc(id: $T, sheet: SpriteSheet(T), dest: ut.Bounds(f32), rotate_deg: f32 = 0) {
     index := i32(id)
 
     column := index % sheet.divisions_x
@@ -151,9 +156,8 @@ draw_sprite :: proc(id: $T, sheet: SpriteSheet(T), dest: ut.Bounds(f32)) {
     height := cell_size_y
 
     rect := rl.Rectangle { x, y, width, height }
-    fmt.println(rect)
     //rl.DrawTextureRec(sheet.texture, rect, {dest.x, dest.y}, rl.WHITE)
-    rl.DrawTexturePro(sheet.texture, rect, {dest.x, dest.y, dest.width, dest.height}, {0, 0}, 0, rl.WHITE)
+    rl.DrawTexturePro(sheet.texture, rect, {dest.x+dest.width/2, dest.y+dest.height/2, dest.width, dest.height}, {dest.width/2, dest.height/2}, rotate_deg, rl.WHITE)
 }
 
 GameState :: enum {
@@ -166,36 +170,22 @@ Level :: struct {
     tilegrid: RectangleTileGrid(Tile),
 }
 
-EnemyType :: enum {
-    Sniper,
-    Shotgunner,
+Player :: struct {
+    // unlocked moves
+    moves: [32]Move,
+    move_count: u8,
+
+    // queued moves
+    move_queue: [32]Move,
+    moves_queued: u8,
+
+    energy_capacity: u8 "text",
+    momentum: u8 "text",
 }
 
-Enemy :: struct {
-    type: EnemyType,
-    position: GridPosition,
-}
-
-GridTranslation :: struct {
-    easing: enum { Quadratic, Linear, Cosine },
-    original_tile: Tile,
-    start_cell: GridPosition,
-    end_cell: GridPosition,
-    progress: f64,
-    speed: f64,
-}
-
-// doesn't really remove just removes from grid visually sort of 
-RemoveFromGrid :: struct {
-    cell: GridPosition,
-}
-
-AddToGrid :: struct {
-    cell: GridPosition,
-}
-
-ActionPayload :: union {
-    GridTranslation,
+MoveDrag :: struct {
+    mouse_start: la.Vector2f32,
+    dragging_move: u8,
 }
 
 AppData :: struct {
@@ -213,14 +203,9 @@ AppData :: struct {
 
     viewports: [2]WorldViewport2D,
     tilegrid: RectangleTileGrid(Tile),
+
     player: Player,
-
-    enemies: [32]Enemy,
-    enemy_count: u8,
-
-    // animations and things dependant on animations
-    action_queue: [128]ActionPayload,
-    action_count: u8,
+    move_drag: MoveDrag,
 
     // hovered tile essentially
     active_tile: GridPosition,
@@ -241,103 +226,38 @@ direction_to_gridpos :: proc(dir: Direction) -> GridPosition {
     unreachable()
 } 
 
-queue_action :: proc(appdata: ^AppData, action: ActionPayload) {
-    appdata.action_queue[appdata.action_count] = action
-    appdata.action_count += 1
-}
-
-render_next_action :: proc(appdata: ^AppData, viewport_id: editorui.ViewportIndex) {
-    next_action := appdata.action_queue[appdata.action_count-1]
-    viewport := appdata.viewports[viewport_id]
-    mat := get_viewport_matrix(viewport)*ut.create_matrix_from_transform(appdata.tilegrid.transform)
-
-    switch v in next_action {
-    case GridTranslation:
-        if v.progress == 0 {
-            prev_tile := get_tile(appdata.tilegrid, v.start_cell)
-            set_tile(&appdata.tilegrid, v.start_cell, Tile {})
-        }
-
-        progress := v.progress
-
-        switch v.easing {
-            case .Quadratic:
-                progress = progress * progress
-            case .Linear:
-                progress = progress
-            case .Cosine:
-                progress = (1 - math.cos_f64(math.PI * progress))/2
-        }
-
-        if v.start_cell.x != v.end_cell.x {
-            y_delta := v.end_cell.y - v.start_cell.y
-            y_position := (progress * f64(y_delta)) + f64(v.start_cell.y)
-
-            render_tile(v.original_tile, {f64(v.start_cell.x), y_position}, mat, appdata.sprite_sheet)
-        } else {
-            x_delta := v.end_cell.x - v.start_cell.x
-            x_position := (progress * f64(x_delta)) + f64(v.start_cell.x)
-            
-            render_tile(v.original_tile, {x_position, f64(v.start_cell.y)}, mat, appdata.sprite_sheet)
-        }
-    }
-}
-
-update_next_action :: proc(appdata: ^AppData, dt: f32) {
-    next_action := appdata.action_queue[appdata.action_count-1]
-
-    switch &v in &next_action {
-    case GridTranslation:
-        assert(v.start_cell.x == v.end_cell.x || v.start_cell.y == v.end_cell.y, message="only support horizontal and vertical translations")
-        
-        if v.progress == 0 {
-            v.original_tile = get_tile(appdata.tilegrid, v.start_cell)
-            set_tile(&appdata.tilegrid, v.start_cell, Tile {})
-        }
-
-        if v.start_cell.x != v.end_cell.x {
-            y_delta := v.end_cell.y - v.start_cell.y
-            v.progress += f64(dt) / f64(y_delta) * v.speed
-        } else {
-            x_delta := v.end_cell.x - v.start_cell.x
-            v.progress += f64(dt) / f64(x_delta) * v.speed
-        }
-    }
-}
-
 do_gamestep :: proc(appdata: ^AppData) {
-    player := &appdata.player
     tilegrid := &appdata.tilegrid
 
-    if get_tile(appdata.tilegrid, player.position).entity == .Player {
-        next_move := appdata.player.move_queue[player.moves_queued-1]
-        player.moves_queued -= 1
+    //if get_tile(appdata.tilegrid, player.position).entity == .Player {
+    //    next_move := appdata.player.move_queue[player.moves_queued-1]
+    //    player.moves_queued -= 1
 
-        switch next_move.type {
-        case .Walk:
-            new_pos := direction_to_gridpos(next_move.direction) + player.position
-            if !ut.position_within_bounds(new_pos, tilegrid.bounds) {
-                //TODO: Some kind of failed to move sfx
-                break
-            }
-            queue_action(appdata, GridTranslation {
-                easing = .Cosine,
-                start_cell = player.position,
-                end_cell = new_pos,
-                speed = 2.0,
-            })
-        }
-    }
+    //    switch next_move.type {
+    //    case .Walk:
+    //        new_pos := direction_to_gridpos(next_move.direction) + player.position
+    //        if !ut.position_within_bounds(new_pos, tilegrid.bounds) {
+    //            //TODO: Some kind of failed to move sfx
+    //            break
+    //        }
+    //        queue_action(appdata, GridTranslation {
+    //            easing = .Cosine,
+    //            start_cell = player.position,
+    //            end_cell = new_pos,
+    //            speed = 2.0,
+    //        })
+    //    }
+    //}
 
-    i: u8 = 0
-    for i < appdata.enemy_count {
-        enemy := appdata.enemies[i]
+    //i: u8 = 0
+    //for i < appdata.enemy_count {
+    //    enemy := appdata.enemies[i]
 
-        if get_tile(appdata.tilegrid, player.position).entity != .Enemy {
-            appdata.enemies[i] = appdata.enemies[appdata.enemy_count-1]
-            appdata.enemy_count-=1
-        }
-    }
+    //    if get_tile(appdata.tilegrid, player.position).entity != .Enemy {
+    //        appdata.enemies[i] = appdata.enemies[appdata.enemy_count-1]
+    //        appdata.enemy_count-=1
+    //    }
+    //}
 }
 
 render_tile_grid_lines :: proc(viewport: WorldViewport2D, tilegrid: RectangleTileGrid($T)) { 
@@ -388,25 +308,12 @@ render_tile_grid_lines :: proc(viewport: WorldViewport2D, tilegrid: RectangleTil
     }
 }
 
-move_player :: proc(appdata: ^AppData) {
-    tile_pos := appdata.player.position
-    set_tile(&appdata.tilegrid, tile_pos, Tile {})
-}
-
 offset: f32 = 0
 update :: proc(appdata: rawptr, delta_time: f32) {
     appdata: ^AppData = cast(^AppData)appdata
     appdata.delta_time = delta_time
 
-    switch appdata.state {
-    case .PlayingAttack:
-        if appdata.action_count > 0 {
-            update_next_action(appdata, delta_time)
-        } else if appdata.player.moves_queued != 0 {
-            do_gamestep(appdata)
-        }
-    case .Planning:
-    }
+    update_tiles(appdata)
 }
 
 drag_camera :: proc(appdata: ^AppData, index: editorui.ViewportIndex) {
@@ -460,21 +367,6 @@ screen_to_world_space :: proc(viewport: WorldViewport2D, screen_position: la.Vec
 }
 
 create_tile :: proc(appdata: ^AppData, position: GridPosition, allocator: mem.Allocator) {
-    switch appdata.editor_settings.selected_tile.entity {
-    case .Player:
-        appdata.player = Player {
-            momentum = 0,
-            energy_capacity = 3,
-            position = position,
-        }
-    case .Enemy:
-        appdata.enemies[appdata.enemy_count] = Enemy {
-            position = position,
-            type = .Sniper,
-        }
-        appdata.enemy_count+=1
-    case .Empty:
-    }
     set_tile(&appdata.tilegrid, position, appdata.editor_settings.selected_tile, allocator)
 }
 
@@ -499,26 +391,59 @@ place_tile :: proc(appdata: ^AppData, viewport_id: editorui.ViewportIndex, alloc
 }
 
 render_tile :: proc(tile: Tile, pos: la.Vector2f64, mat: la.Matrix3f64, sprite_sheet: SpriteSheet(FirstGameSheetId)) {
-    viewport_bounds := ut.apply_matrix_to_bounds(mat, ut.Bounds(f64) {
-        x = pos.x,
-        y = pos.y,
-        width = 1,
-        height = 1,
-    })
+    id: FirstGameSheetId = tile.sprite
 
-    id: FirstGameSheetId
+    if .Used in tile.flags {
+        if .Active in tile.animating.flags && .Completed not_in tile.animating.flags {
+            target_pos := pos
 
-    switch tile.entity {
-    case .Player:
-        id = .PlayerHappy
-    case .Enemy:
-        //TODO
-        id = .Sniper
-    case .Empty:
+            if .Vertical in tile.animating.flags {
+                target_pos += {0, tile.animating.progress * tile.animating.amount }
+            } else {
+                target_pos += { tile.animating.progress * tile.animating.amount, 0 }
+            }
+
+            viewport_bounds := ut.apply_matrix_to_bounds(mat, ut.Bounds(f64) {
+                x = target_pos.x,
+                y = target_pos.y,
+                width = 1,
+                height = 1,
+            })
+            
+            draw_sprite(id, sprite_sheet, ut.bounds_to_bounds(f32, viewport_bounds))
+        } else {
+            viewport_bounds := ut.apply_matrix_to_bounds(mat, ut.Bounds(f64) {
+                x = pos.x,
+                y = pos.y,
+                width = 1,
+                height = 1,
+            })
+
+            draw_sprite(id, sprite_sheet, ut.bounds_to_bounds(f32, viewport_bounds))
+        }
     }
-    
-    if tile.entity != .Empty {
-        draw_sprite(id, sprite_sheet, ut.bounds_to_bounds(f32, viewport_bounds))
+}
+
+update_tile :: proc(appdata: ^AppData, position: GridPosition) {
+    tile := get_tile_ptr(&appdata.tilegrid, position)
+
+    if .Used in tile.flags {
+        if .Active in tile.animating.flags {
+            if .Completed not_in tile.animating.flags {
+            } else {
+                tile.animating.flags -= { .Active }
+            }
+        }
+    }
+}
+
+update_tiles :: proc(appdata: ^AppData) {
+    b := appdata.tilegrid.bounds
+
+    for y in b.y..<b.height+b.y {
+        for x in b.x..<b.width+b.x {
+            update_tile(appdata, {x, y})
+        }
     }
 }
 
@@ -532,6 +457,78 @@ render_tiles :: proc(viewport: WorldViewport2D, tilegrid: RectangleTileGrid(Tile
             render_tile(tile, {f64(x), f64(y)}, mat, spritesheet)
         }
     }
+}
+
+render_game_ui :: proc(appdata: ^AppData, viewport_id: editorui.ViewportIndex) {
+    viewport := &appdata.viewports[viewport_id]
+
+    tile_size: f32 = 30
+    gap: f32 = 3
+    bottom_padding: f32 = 5
+    top_padding: f32 = 5
+    drop_zone_side_padding: f32 = 5
+
+    drop_zone_bounds := ut.Bounds(f32) {
+        y = f32(viewport.screen_rect.y + viewport.screen_rect.height) - bottom_padding - tile_size*2 - top_padding,
+        x = f32(viewport.screen_rect.x) + drop_zone_side_padding,
+        width = f32(viewport.screen_rect.width)-drop_zone_side_padding*2,
+        height = tile_size,
+    }
+
+    for i in 0..<appdata.player.move_count {
+        move := &appdata.player.moves[i]
+
+        bounds := ut.Bounds(f32) {
+            x = f32(i) * (tile_size+gap) + f32(viewport.screen_rect.x) + f32(viewport.screen_rect.width/2) - (tile_size+gap)*f32(appdata.player.move_count)/2,
+            y = f32(viewport.screen_rect.y + viewport.screen_rect.height) - bottom_padding - tile_size,
+            width = tile_size,
+            height = tile_size,
+        }
+        
+        mouse_pos := rl.GetMousePosition()
+        
+        rl.DrawRectangleLinesEx(transmute(rl.Rectangle)bounds, 1, rl.BLACK)
+
+        if appdata.move_drag.dragging_move == i+1 {
+            bounds.x = mouse_pos.x - tile_size/2
+            bounds.y = mouse_pos.y - tile_size/2
+
+            draw_sprite(move.sprite, appdata.sprite_sheet, bounds, f32(move.direction) * 90 + f32(move.sprite_rotation_offset))
+
+            if rl.IsMouseButtonReleased(.LEFT) {
+                if ut.position_within_bounds(mouse_pos, drop_zone_bounds) {
+                    appdata.player.move_queue[appdata.player.moves_queued] = move^
+                    appdata.player.moves_queued += 1
+                }
+
+                appdata.move_drag = MoveDrag {}
+            }
+        } else {
+            draw_sprite(move.sprite, appdata.sprite_sheet, bounds, f32(move.direction) * 90 + f32(move.sprite_rotation_offset))
+
+            if ut.position_within_bounds(mouse_pos, bounds) && rl.IsMouseButtonPressed(.LEFT) {
+                appdata.move_drag = MoveDrag {
+                    dragging_move = i+1,
+                    mouse_start = mouse_pos,
+                }
+            }
+        }    
+    }
+    
+    for i in 0..<appdata.player.moves_queued {
+        move := &appdata.player.move_queue[i]
+
+        bounds := ut.Bounds(f32) {
+            x = f32(i) * (tile_size+gap) + f32(viewport.screen_rect.x),
+            y = f32(viewport.screen_rect.y + viewport.screen_rect.height) - bottom_padding - tile_size*2 - top_padding,
+            width = tile_size,
+            height = tile_size,
+        }
+        
+        draw_sprite(move.sprite, appdata.sprite_sheet, bounds, f32(move.direction) * 90 + f32(move.sprite_rotation_offset))
+    }
+
+    rl.DrawRectangleRec(transmute(rl.Rectangle)drop_zone_bounds, auto_cast ut.Color {0, 0, 0, 20})
 }
 
 render :: proc(appdata: rawptr, screen_rect: ut.Bounds(f32), id: editorui.ViewportIndex) {
@@ -555,9 +552,10 @@ render :: proc(appdata: rawptr, screen_rect: ut.Bounds(f32), id: editorui.Viewpo
             place_tile(appdata, id, mem.arena_allocator(&appdata.init_allocator))
         }
         zoom_camera(appdata, id)
+    case .GameTool:
     }
 
-    render_next_action(appdata, id)
+    render_game_ui(appdata, id)
 
     clay.SetCurrentContext(appdata.ui_context)
     clay.BeginLayout()
@@ -620,7 +618,7 @@ set_tile :: proc(tilegrid: ^RectangleTileGrid($T), position: GridPosition, tile:
 
         for x in old_bounds.x..<old_bounds.width+old_bounds.x {
             for y in old_bounds.y..<old_bounds.height+old_bounds.y {
-                set_tile_base(tilegrid, {x, y}, get_tile_base(old_tiles, old_bounds.x, old_bounds.y, old_bounds.width, {x, y}))
+                set_tile_base(tilegrid, {x, y}, get_tile_base(old_tiles, old_bounds.x, old_bounds.y, old_bounds.width, {x, y})^)
             }
         }
     }
@@ -629,15 +627,22 @@ set_tile :: proc(tilegrid: ^RectangleTileGrid($T), position: GridPosition, tile:
     set_tile_base(tilegrid, position, tile)
 }
 
-get_tile_base :: proc(tiles: []$T, x, y, width: i32, position: GridPosition) -> T {
+get_tile_base :: proc(tiles: []$T, x, y, width: i32, position: GridPosition) -> ^T {
     idx_y := int(width) * int(position.y - y)
     idx_x := int(position.x - x)
-    return tiles[idx_y + idx_x]
+    return &tiles[idx_y + idx_x]
 }
 
 get_tile :: proc(tilegrid: RectangleTileGrid($T), position: GridPosition) -> T {
     if !ut.position_within_bounds(position, tilegrid.bounds) {
         return T{}
+    }
+    return get_tile_base(tilegrid.tiles, tilegrid.bounds.x, tilegrid.bounds.y, tilegrid.bounds.width, position)^
+}
+
+get_tile_ptr :: proc(tilegrid: ^RectangleTileGrid($T), position: GridPosition) -> ^T {
+    if !ut.position_within_bounds(position, tilegrid.bounds) {
+        return nil
     }
     return get_tile_base(tilegrid.tiles, tilegrid.bounds.x, tilegrid.bounds.y, tilegrid.bounds.width, position)
 }
@@ -666,7 +671,28 @@ init_game :: proc(appdata: ^AppData) {
 
     appdata.sprite_sheet = create_first_game_sheet()
 
-    context.allocator = mem.arena_allocator(&appdata.init_allocator)
+    appdata.player = Player {
+        move_count = 2,
+    }
+    
+    appdata.player.moves[1] = Move {
+        direction = .Up,
+        energy_cost = 2,
+        momentum_required = 0,
+        sprite = .Shield,
+        sprite_rotation_offset = 180,
+        type = .Dodge,
+    }
+
+    appdata.player.moves[0] = Move {
+        direction = .Up,
+        energy_cost = 0,
+        momentum_required = 0,
+        sprite = .Direction,
+        type = .Walk,
+    }
+
+    //context.allocator = mem.arena_allocator(&appdata.init_allocator)
     
     //set_tile(&appdata.tilegrid, {0, 0}, .Blue)
     //set_tile(&appdata.tilegrid, {-1, -1}, .Red)
