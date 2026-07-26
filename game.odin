@@ -47,7 +47,7 @@ Move :: struct {
 // only translation animation for now
 Animation :: struct {
     flags: bit_set[enum {Active, Vertical, Completed}],
-    amount: f64,
+    amount: i32,
     progress: f64,
 }
 
@@ -161,8 +161,8 @@ draw_sprite :: proc(id: $T, sheet: SpriteSheet(T), dest: ut.Bounds(f32), rotate_
 }
 
 GameState :: enum {
-    PlayingAttack,
     Planning,
+    PlayingAttack,
 }
 
 LevelId :: distinct u32
@@ -188,6 +188,20 @@ MoveDrag :: struct {
     dragging_move: u8,
 }
 
+QueueMoveDrag :: struct {
+    mouse_start: la.Vector2f32,
+    dragging_move: u8,
+}
+
+EmptyDrag :: struct {}
+
+Drag :: union {
+    EmptyDrag,
+    QueueMoveDrag,
+    MoveDrag,
+    ViewportDrag,
+}
+
 AppData :: struct {
     delta_time: f32,
     ui_context: ^clay.Context,
@@ -198,14 +212,14 @@ AppData :: struct {
 
     editor_settings: EditorSettings,
 
-    viewport_drag: ViewportDrag,
     sprite_sheet: SpriteSheet(FirstGameSheetId),
 
     viewports: [2]WorldViewport2D,
     tilegrid: RectangleTileGrid(Tile),
 
     player: Player,
-    move_drag: MoveDrag,
+
+    drag: Drag,
 
     // hovered tile essentially
     active_tile: GridPosition,
@@ -313,7 +327,7 @@ update :: proc(appdata: rawptr, delta_time: f32) {
     appdata: ^AppData = cast(^AppData)appdata
     appdata.delta_time = delta_time
 
-    update_tiles(appdata)
+    update_tiles(appdata, delta_time)
 }
 
 drag_camera :: proc(appdata: ^AppData, index: editorui.ViewportIndex) {
@@ -324,25 +338,29 @@ drag_camera :: proc(appdata: ^AppData, index: editorui.ViewportIndex) {
     within := ut.position_within_bounds(la.Vector2f64{f64(mouse_pos.x), f64(mouse_pos.y)}, viewport.screen_rect)
 
     if rl.IsMouseButtonPressed(.LEFT) && within {
-        appdata.viewport_drag.mouse_start = mouse_pos
-        appdata.viewport_drag.camera_start = viewport.camera_position
-        appdata.viewport_drag.active = index
-        appdata.viewport_drag.camera_inverse_transform_matrix = la.matrix3_inverse(get_viewport_matrix(viewport^))
+        appdata.drag = ViewportDrag {
+            mouse_start = mouse_pos,
+            camera_start = viewport.camera_position,
+            active = index,
+            camera_inverse_transform_matrix = la.matrix3_inverse(get_viewport_matrix(viewport^)),
+        }
     }
 
-    if rl.IsMouseButtonDown(.LEFT) && appdata.viewport_drag.active == index {
-        inverse := appdata.viewport_drag.camera_inverse_transform_matrix
+    if viewport_drag, ok := &appdata.drag.(ViewportDrag); ok {
+        if rl.IsMouseButtonDown(.LEFT) && viewport_drag.active == index {
+            inverse := viewport_drag.camera_inverse_transform_matrix
 
-        start_world := ut.apply_matrix_to_point(inverse, auto_cast appdata.viewport_drag.mouse_start)
-        current_world := ut.apply_matrix_to_point(inverse, auto_cast mouse_pos)
+            start_world := ut.apply_matrix_to_point(inverse, auto_cast viewport_drag.mouse_start)
+            current_world := ut.apply_matrix_to_point(inverse, auto_cast mouse_pos)
 
-        drag_world := current_world - start_world
+            drag_world := current_world - start_world
 
-        viewport.camera_position = appdata.viewport_drag.camera_start - drag_world
-    }
+            viewport.camera_position = viewport_drag.camera_start - drag_world
+        }
 
-    if rl.IsMouseButtonReleased(.LEFT) && appdata.viewport_drag.active == index {
-        appdata.viewport_drag.active = max(editorui.ViewportIndex)
+        if rl.IsMouseButtonReleased(.LEFT) && viewport_drag.active == index {
+            viewport_drag.active = max(editorui.ViewportIndex)
+        }
     }
 }
 
@@ -398,9 +416,9 @@ render_tile :: proc(tile: Tile, pos: la.Vector2f64, mat: la.Matrix3f64, sprite_s
             target_pos := pos
 
             if .Vertical in tile.animating.flags {
-                target_pos += {0, tile.animating.progress * tile.animating.amount }
+                target_pos += {0, tile.animating.progress * f64(tile.animating.amount) }
             } else {
-                target_pos += { tile.animating.progress * tile.animating.amount, 0 }
+                target_pos += { tile.animating.progress * f64(tile.animating.amount), 0 }
             }
 
             viewport_bounds := ut.apply_matrix_to_bounds(mat, ut.Bounds(f64) {
@@ -424,25 +442,77 @@ render_tile :: proc(tile: Tile, pos: la.Vector2f64, mat: la.Matrix3f64, sprite_s
     }
 }
 
-update_tile :: proc(appdata: ^AppData, position: GridPosition) {
+update_tile :: proc(appdata: ^AppData, position: GridPosition, dt: f32) {
     tile := get_tile_ptr(&appdata.tilegrid, position)
 
-    if .Used in tile.flags {
-        if .Active in tile.animating.flags {
-            if .Completed not_in tile.animating.flags {
+    if .Used in tile.flags && appdata.state == .PlayingAttack {
+        if .PerformPlayerActions in tile.flags {
+            if appdata.player.moves_queued == 0 {
+                appdata.state = .Planning
+                return
+            }
+
+            if .Active not_in tile.animating.flags {
+                next_move := appdata.player.move_queue[appdata.player.move_count-1]
+
+                switch next_move.type {
+                case .Walk:
+                    dir := next_move.direction
+
+                    if dir == .Up || dir == .Down {
+                        tile.animating = Animation {
+                            amount = dir == .Up ? 1 : -1,
+                            flags = { .Vertical, .Active }
+                        }
+                    } else {
+                        tile.animating = Animation {
+                            amount = dir == .Right ? 1 : -1,
+                            flags = { .Active }
+                        }
+                    }
+                case .Dodge:
+                    unimplemented()
+                }
+
+                // it doesn't serve me to keep thinking in this moment in the dark
+                // its time to restart
+                // I need a more centralized animation flow
+                // this is less trivial than I thought; beating myself up over it isn't going to help
+                // but it does make me doubt my choice of engine
+
+                appdata.player.moves_queued-=1
             } else {
+                tile.animating.progress += f64(dt)
+                if tile.animating.progress >= 1 {
+                    tile.animating.flags += { .Completed }
+                    new_pos := position
+
+                    if .Vertical in tile.animating.flags {
+                        new_pos.y += tile.animating.amount
+                    } else {
+                        new_pos.x += tile.animating.amount
+                    }
+
+                    set_tile(&appdata.tilegrid, new_pos, tile^)
+                    //set_tile(&appdata.tilegrid, position, Tile {})
+                }
+            }
+        }
+
+        if .Active in tile.animating.flags {
+            if .Completed in tile.animating.flags {
                 tile.animating.flags -= { .Active }
             }
         }
     }
 }
 
-update_tiles :: proc(appdata: ^AppData) {
+update_tiles :: proc(appdata: ^AppData, dt: f32) {
     b := appdata.tilegrid.bounds
 
     for y in b.y..<b.height+b.y {
         for x in b.x..<b.width+b.x {
-            update_tile(appdata, {x, y})
+            update_tile(appdata, {x, y}, dt)
         }
     }
 }
@@ -467,12 +537,38 @@ render_game_ui :: proc(appdata: ^AppData, viewport_id: editorui.ViewportIndex) {
     bottom_padding: f32 = 5
     top_padding: f32 = 5
     drop_zone_side_padding: f32 = 5
+    top_top_padding: f32 = 5
 
     drop_zone_bounds := ut.Bounds(f32) {
         y = f32(viewport.screen_rect.y + viewport.screen_rect.height) - bottom_padding - tile_size*2 - top_padding,
         x = f32(viewport.screen_rect.x) + drop_zone_side_padding,
         width = f32(viewport.screen_rect.width)-drop_zone_side_padding*2,
         height = tile_size,
+    }
+    
+    delete_zone_bounds := ut.Bounds(f32) {
+        y = f32(viewport.screen_rect.y + viewport.screen_rect.height) - bottom_padding - tile_size,
+        x = f32(viewport.screen_rect.x) + drop_zone_side_padding,
+        width = f32(viewport.screen_rect.width)-drop_zone_side_padding*2,
+        height = tile_size,
+    }
+
+    top_row_size_height: f32 = 30
+    top_row_event_button_width: f32 = 40
+    
+    button_bounds := ut.Bounds(f32) {
+        y = f32(viewport.screen_rect.y + viewport.screen_rect.height) - bottom_padding - tile_size*2 - top_padding - top_top_padding - top_row_size_height,
+        x = f32(viewport.screen_rect.x + viewport.screen_rect.width) - drop_zone_side_padding - top_row_event_button_width,
+        width = top_row_event_button_width,
+        height = top_row_size_height,
+    }
+
+    rl.DrawRectangleRec(transmute(rl.Rectangle)button_bounds, auto_cast ut.GREEN)
+
+    mouse_pos := rl.GetMousePosition()
+
+    if ut.position_within_bounds(mouse_pos, button_bounds) && rl.IsMouseButtonPressed(.LEFT) {
+        appdata.state = .PlayingAttack
     }
 
     for i in 0..<appdata.player.move_count {
@@ -485,11 +581,9 @@ render_game_ui :: proc(appdata: ^AppData, viewport_id: editorui.ViewportIndex) {
             height = tile_size,
         }
         
-        mouse_pos := rl.GetMousePosition()
-        
         rl.DrawRectangleLinesEx(transmute(rl.Rectangle)bounds, 1, rl.BLACK)
 
-        if appdata.move_drag.dragging_move == i+1 {
+        if move_drag, ok := &appdata.drag.(MoveDrag); ok && move_drag.dragging_move == i {
             bounds.x = mouse_pos.x - tile_size/2
             bounds.y = mouse_pos.y - tile_size/2
 
@@ -499,20 +593,34 @@ render_game_ui :: proc(appdata: ^AppData, viewport_id: editorui.ViewportIndex) {
                 if ut.position_within_bounds(mouse_pos, drop_zone_bounds) {
                     appdata.player.move_queue[appdata.player.moves_queued] = move^
                     appdata.player.moves_queued += 1
+                    assert(appdata.player.moves_queued <= len(appdata.player.moves))
                 }
 
-                appdata.move_drag = MoveDrag {}
+                appdata.drag = EmptyDrag {}
             }
         } else {
             draw_sprite(move.sprite, appdata.sprite_sheet, bounds, f32(move.direction) * 90 + f32(move.sprite_rotation_offset))
 
             if ut.position_within_bounds(mouse_pos, bounds) && rl.IsMouseButtonPressed(.LEFT) {
-                appdata.move_drag = MoveDrag {
-                    dragging_move = i+1,
+                appdata.drag = MoveDrag {
+                    dragging_move = i,
                     mouse_start = mouse_pos,
                 }
             }
-        }    
+        }
+    }
+
+    if queue_drag, ok := &appdata.drag.(QueueMoveDrag); ok {
+        if rl.IsMouseButtonReleased(.LEFT) {
+            if ut.position_within_bounds(mouse_pos, delete_zone_bounds) {
+                appdata.player.moves_queued -= 1
+                fmt.println("hello?")
+                for j in queue_drag.dragging_move..<appdata.player.moves_queued {
+                    appdata.player.move_queue[j] = appdata.player.move_queue[j+1]
+                }
+            }
+            appdata.drag = EmptyDrag {}
+        }
     }
     
     for i in 0..<appdata.player.moves_queued {
@@ -524,7 +632,43 @@ render_game_ui :: proc(appdata: ^AppData, viewport_id: editorui.ViewportIndex) {
             width = tile_size,
             height = tile_size,
         }
-        
+
+        if queue_drag, ok := &appdata.drag.(QueueMoveDrag); ok {
+            if rl.IsMouseButtonReleased(.LEFT) && ut.position_within_bounds(mouse_pos, bounds) {
+                temp := appdata.player.move_queue[i]
+                appdata.player.move_queue[i] = appdata.player.move_queue[queue_drag.dragging_move]
+                appdata.player.move_queue[queue_drag.dragging_move] = temp
+
+                appdata.drag = EmptyDrag {}
+            }
+
+            if queue_drag.dragging_move == i {
+                bounds.x = mouse_pos.x - tile_size/2
+                bounds.y = mouse_pos.y - tile_size/2
+
+                draw_sprite(move.sprite, appdata.sprite_sheet, bounds, f32(move.direction) * 90 + f32(move.sprite_rotation_offset))
+            } 
+        } else {
+            draw_sprite(move.sprite, appdata.sprite_sheet, bounds, f32(move.direction) * 90 + f32(move.sprite_rotation_offset))
+
+            if ut.position_within_bounds(mouse_pos, bounds) && rl.IsMouseButtonPressed(.LEFT) {
+                if rl.IsKeyDown(.LEFT_CONTROL) {
+                    if move.direction == .Right {
+                        move.direction = .Up
+                    } else {
+                        move.direction += Direction(1)
+                    }
+                } else {
+                    if ut.position_within_bounds(mouse_pos, bounds) && rl.IsMouseButtonPressed(.LEFT) {
+                        appdata.drag = QueueMoveDrag {
+                            dragging_move = i,
+                            mouse_start = mouse_pos,
+                        }
+                    }
+                }
+            }
+        }        
+
         draw_sprite(move.sprite, appdata.sprite_sheet, bounds, f32(move.direction) * 90 + f32(move.sprite_rotation_offset))
     }
 
@@ -674,6 +818,12 @@ init_game :: proc(appdata: ^AppData) {
     appdata.player = Player {
         move_count = 2,
     }
+
+    set_tile(&appdata.tilegrid, {0, 0}, Tile {
+        flags = {.Used, .PerformPlayerActions},
+        platform = .Base,
+        sprite = .PlayerHappy,
+    })
     
     appdata.player.moves[1] = Move {
         direction = .Up,

@@ -11,6 +11,7 @@ WHITE :: Color { 255, 255, 255, 255 }
 BLACK :: Color { 0, 0, 0, 255 }
 RED :: Color { 255, 0, 0, 255 }
 BLUE :: Color { 0, 0, 255, 255 }
+GREEN :: Color { 0, 255, 125, 255 }
 ORANGE :: Color { 255, 125, 0, 255 }
 
 concatenate :: proc(buf: []u8, strs: ..string) -> string {
