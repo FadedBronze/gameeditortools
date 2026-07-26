@@ -55,33 +55,14 @@ create_layout :: proc(
                 }
 
                 if .TileEditor in appdata.editor_settings.open_views {
-                    label := "Tilegrid"
-                    editorui.render_structure_panel(editor_ui, label, &appdata.tilegrid, label)
+                    label := "Grid"
+                    editorui.render_structure_panel(editor_ui, label, &appdata.linegrid, label)
                 }
                 
                 if .Player in appdata.editor_settings.open_views {
-                    label := "Player"
-                    editorui.render_structure_panel(editor_ui, label, &appdata.player, label)
                 }
 
                 if .ActionQueue in appdata.editor_settings.open_views {
-                    label := "ActionQueue"
-
-                    Dummy :: struct {
-                        count: ^u8 "text",
-                    }
-
-                    dum: Dummy = {&appdata.player.moves_queued}
-                    
-                    editorui.render_structure_panel(editor_ui, label, &dum, label)
-
-                    for i in 0..<appdata.player.moves_queued {
-                        move := &appdata.player.move_queue[i]
-                        buf: [32]u8
-                        sb := strings.builder_from_bytes(buf[:])
-                        id := fmt.sbprint(&sb, "Move", i)
-                        editorui.render_structure_panel(editor_ui, id, move, id)
-                    }
                 }
             }
 
