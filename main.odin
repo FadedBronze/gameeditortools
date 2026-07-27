@@ -59,10 +59,21 @@ create_layout :: proc(
                     editorui.render_structure_panel(editor_ui, label, &appdata.linegrid, label)
                 }
                 
-                if .Player in appdata.editor_settings.open_views {
-                }
-
-                if .ActionQueue in appdata.editor_settings.open_views {
+                if .State in appdata.editor_settings.open_views {
+                    label := "State"
+                    State :: struct {
+                        state: ^GameState "dropdown",
+                        sim_time: ^f32 "text",
+                        delta_time: ^f32 "text",
+                        player: ^Player "group",
+                    }
+                    state: State = {
+                        state = &appdata.state,
+                        sim_time = &appdata.sim_time,
+                        delta_time = &appdata.delta_time,
+                        player = &appdata.player
+                    }
+                    editorui.render_structure_panel(editor_ui, label, &state, label)
                 }
             }
 
