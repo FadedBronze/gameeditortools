@@ -71,9 +71,19 @@ create_layout :: proc(
                         state = &appdata.state,
                         sim_time = &appdata.sim_time,
                         delta_time = &appdata.delta_time,
-                        player = &appdata.player
+                        player = &appdata.player,
                     }
                     editorui.render_structure_panel(editor_ui, label, &state, label)
+                }
+
+                if .Entities in appdata.editor_settings.open_views {
+                    for i in 0..<appdata.entities_count {
+                        entity := &appdata.entities[i]
+                        buf: [32]u8
+                        sb := strings.builder_from_bytes(buf[:])
+                        label := fmt.sbprintf(&sb, "Entity", i)
+                        editorui.render_structure_panel(editor_ui, label, entity, label)
+                    }
                 }
             }
 

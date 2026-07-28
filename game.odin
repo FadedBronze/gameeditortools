@@ -27,10 +27,10 @@ Behaviour :: enum {
 Entity :: struct {
     flags: bit_set[enum {Something}] "dropdown",
     sprite: FirstGameSheetId "dropdown",
-    position: GridPosition,
-    behaviour: Behaviour,
-    ability_start_simtime: f32,
-    move: Move,
+    position: GridPosition "text",
+    behaviour: Behaviour "dropdown",
+    ability_start_simtime: f32 "text",
+    move: Move "group",
     team: u8 "text",
 }
 
@@ -73,6 +73,7 @@ Views :: enum {
     TileEditor,
     Player,
     State,
+    Entities,
 }
 
 EditorSettings :: struct {
@@ -188,6 +189,7 @@ AppData :: struct {
     linegrid: RectangleLineGrid,
 
     grid: Grid(Tile),
+    old_grid: Grid(Tile),
 
     entities: []Entity,
     entities_count: u32, // zero corresponds to null ig
@@ -267,7 +269,20 @@ Move :: struct {
     direction: Direction,
 }
 
-calculate_move_weight :: proc(appdata: ^AppData, entity: ^Entity, old_grid: Grid(Tile), move: Move) -> i16 {
+in_direction_of :: proc(dir: Direction, pos: GridPosition, target: GridPosition) -> bool {
+    return closest(dir_to_grid_pos(dir) + pos, pos, target)
+}
+
+closest :: proc(a: GridPosition, b: GridPosition, target: GridPosition) -> (is_a: bool) {
+    at: GridPosition = {a.x - target.x, a.y - target.y}
+    bt: GridPosition = {b.x - target.x, b.y - target.y}
+
+    return at.x*at.x+at.y*at.y > bt.x*bt.x+bt.y*bt.y
+}
+
+import "core:fmt"
+
+calculate_move_weight :: proc(appdata: ^AppData, entity: ^Entity, move: Move) -> i16 {
     weight: i16 = 0
 
     if entity.team == appdata.player.team {
@@ -279,6 +294,54 @@ calculate_move_weight :: proc(appdata: ^AppData, entity: ^Entity, old_grid: Grid
             }
         case .Walk:
             weight += 1
+            has_friend := false
+            lost := false
+
+            for x in -2..=2 {
+                for y in -2..=2 {
+                    if x == 0 || y == 0 {
+                        continue
+                    }
+
+                    pos := entity.position+{i32(x), i32(y)}
+                    tile := get_tile(appdata.old_grid, pos)
+                    fmt.println(pos, tile)
+
+                    if tile.entity == 0 {
+                        continue
+                    }
+
+                    if appdata.entities[tile.entity-1].team == entity.team {
+                        has_friend = true
+                    }
+                }
+            }
+            
+            closest_friend: GridPosition = {10000, 10000}
+
+            if !has_friend {
+                lost = true
+
+                for x in i32(-3)..=3 {
+                    for y in i32(-3)..=3 {
+                        if x == 0 || y == 0 {
+                            continue
+                        }
+                        
+                        tile := get_tile(appdata.old_grid, entity.position+{i32(x), i32(y)})
+
+                        if tile.entity == 0 {
+                            continue
+                        }
+
+                        if appdata.entities[tile.entity-1].team == entity.team {
+                            if closest({x, y}, closest_friend, entity.position) {
+                                closest_friend = {x, y}
+                            }
+                        }
+                    }
+                }
+            }
 
             if appdata.player.signals == .GoUp {
                 if move.direction == .Up {
@@ -312,8 +375,18 @@ calculate_move_weight :: proc(appdata: ^AppData, entity: ^Entity, old_grid: Grid
                 }
             }
 
+            if !has_friend && !in_direction_of(move.direction, entity.position, closest_friend) {
+                weight -= 1
+            }
+
+            if lost {
+                weight = 0
+            }
+
+            //fmt.println(weight, lost, closest_friend, has_friend)
+
             next_pos := entity.position + dir_to_grid_pos(move.direction)
-            if .Blocked in get_tile(old_grid, next_pos).environment.flags {
+            if .Blocked in get_tile(appdata.old_grid, next_pos).environment.flags {
                 weight = 0
             }
         }
@@ -322,7 +395,7 @@ calculate_move_weight :: proc(appdata: ^AppData, entity: ^Entity, old_grid: Grid
     return weight
 }
 
-entity_ai_next_move :: proc(appdata: ^AppData, entity: ^Entity, old_grid: Grid(Tile)) -> Move {
+entity_ai_next_move :: proc(appdata: ^AppData, entity: ^Entity) -> Move {
     highest_weight: i16 = 0
     best_move: Move
 
@@ -332,7 +405,7 @@ entity_ai_next_move :: proc(appdata: ^AppData, entity: ^Entity, old_grid: Grid(T
         for j in 0..<4 {
             direction := Direction(j)
             next_move := Move {move, direction}
-            next_weight := calculate_move_weight(appdata, entity, old_grid, next_move)
+            next_weight := calculate_move_weight(appdata, entity, next_move)
 
             if next_weight > highest_weight {
                 highest_weight = next_weight
@@ -379,18 +452,6 @@ add_entity :: proc(appdata: ^AppData, entity: Entity) {
     appdata.entities_count += 1
 }
 
-update_entities :: proc(appdata: ^AppData, delta_time: f32) {
-    old_grid := copy_grid(appdata.grid, mem.arena_allocator(&appdata.frame_allocator))
-
-    for i in 0..<appdata.entities_count {
-        entity: ^Entity = &appdata.entities[i]
-        entity_do_move(appdata, EntityId(u32(i+1)), old_grid)
-
-        move := entity_ai_next_move(appdata, entity, old_grid)
-        entity.move = move
-    }
-}
-
 render_entities :: proc(appdata: ^AppData, viewport: WorldViewport2D) {
     mat := get_viewport_matrix(viewport)
 
@@ -432,33 +493,54 @@ render_entities :: proc(appdata: ^AppData, viewport: WorldViewport2D) {
     }
 }
 
+start_next_iteration :: proc(appdata: ^AppData) {
+    if appdata.state == .PlayingAttack {
+        return
+    }
+    for i in 0..<appdata.entities_count {
+        entity: ^Entity = &appdata.entities[i]
+        move := entity_ai_next_move(appdata, entity)
+        entity.move = move
+    }
+    appdata.state = .PlayingAttack
+}
+
+start_next_planning :: proc(appdata: ^AppData) {
+    for i in 0..<appdata.entities_count {
+        entity: ^Entity = &appdata.entities[i]
+        entity_do_move(appdata, EntityId(u32(i+1)), appdata.old_grid)
+        appdata.state = .Planning
+    }
+}
+
 update :: proc(appdata: rawptr, delta_time: f32) {
     appdata: ^AppData = cast(^AppData)appdata
     appdata.delta_time = delta_time
 
+    appdata.old_grid = copy_grid(appdata.grid, mem.arena_allocator(&appdata.frame_allocator))
+ 
     if rl.IsKeyPressed(.UP) {
         appdata.player.signals = .GoUp
-        appdata.state = .PlayingAttack
+        start_next_iteration(appdata)
     } else if rl.IsKeyPressed(.DOWN) {
         appdata.player.signals = .GoDown
-        appdata.state = .PlayingAttack
+        start_next_iteration(appdata)
     } else if rl.IsKeyPressed(.LEFT) {
         appdata.player.signals = .GoLeft
-        appdata.state = .PlayingAttack
+        start_next_iteration(appdata)
     } else if rl.IsKeyPressed(.RIGHT) {
         appdata.player.signals = .GoRight
-        appdata.state = .PlayingAttack
+        start_next_iteration(appdata)
+    }
+    
+    if math.floor(appdata.sim_time+delta_time) > math.floor(appdata.sim_time) {
+        start_next_planning(appdata)
     }
 
     if appdata.state == .Planning {
         appdata.sim_time = math.floor(appdata.sim_time)
     } else {
         appdata.sim_time += delta_time
-    }
-
-    if math.floor(appdata.sim_time + delta_time) > math.floor(appdata.sim_time) {
-        update_entities(appdata, delta_time)
-        appdata.state = .Planning
     }
 
     update_tiles(appdata, delta_time)
@@ -764,7 +846,7 @@ initialize_app :: proc(appdata: ^AppData, allocator: mem.Allocator) {
         },
     }
 
-    appdata.editor_settings.open_views += { .State }
+    appdata.editor_settings.open_views += { .Entities }
 
     // game
     init_game(appdata)
