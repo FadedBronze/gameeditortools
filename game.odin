@@ -6,6 +6,7 @@ import clay "clay-odin"
 import rl "vendor:raylib"
 import la "core:math/linalg"
 import "core:math/rand"
+import "core:fmt"
 
 import "core:math"
 import "core:mem"
@@ -32,6 +33,9 @@ Entity :: struct {
     ability_start_simtime: f32 "text",
     move: Move "group",
     team: u8 "text",
+    target_offset_from_head: GridPosition,
+    team_next: EntityId,
+    team_head: EntityId,
 }
 
 Environment :: struct {
@@ -191,6 +195,9 @@ AppData :: struct {
     grid: Grid(Tile),
     old_grid: Grid(Tile),
 
+    team_heads: [10]EntityId,
+    teams_count: u8,
+
     entities: []Entity,
     entities_count: u32, // zero corresponds to null ig
 
@@ -277,10 +284,8 @@ closest :: proc(a: GridPosition, b: GridPosition, target: GridPosition) -> (is_a
     at: GridPosition = {a.x - target.x, a.y - target.y}
     bt: GridPosition = {b.x - target.x, b.y - target.y}
 
-    return at.x*at.x+at.y*at.y > bt.x*bt.x+bt.y*bt.y
+    return at.x*at.x+at.y*at.y < bt.x*bt.x+bt.y*bt.y
 }
-
-import "core:fmt"
 
 calculate_move_weight :: proc(appdata: ^AppData, entity: ^Entity, move: Move) -> i16 {
     weight: i16 = 0
@@ -294,55 +299,8 @@ calculate_move_weight :: proc(appdata: ^AppData, entity: ^Entity, move: Move) ->
             }
         case .Walk:
             weight += 1
-            has_friend := false
-            lost := false
 
-            for x in -2..=2 {
-                for y in -2..=2 {
-                    if x == 0 || y == 0 {
-                        continue
-                    }
-
-                    pos := entity.position+{i32(x), i32(y)}
-                    tile := get_tile(appdata.old_grid, pos)
-                    fmt.println(pos, tile)
-
-                    if tile.entity == 0 {
-                        continue
-                    }
-
-                    if appdata.entities[tile.entity-1].team == entity.team {
-                        has_friend = true
-                    }
-                }
-            }
-            
-            closest_friend: GridPosition = {10000, 10000}
-
-            if !has_friend {
-                lost = true
-
-                for x in i32(-3)..=3 {
-                    for y in i32(-3)..=3 {
-                        if x == 0 || y == 0 {
-                            continue
-                        }
-                        
-                        tile := get_tile(appdata.old_grid, entity.position+{i32(x), i32(y)})
-
-                        if tile.entity == 0 {
-                            continue
-                        }
-
-                        if appdata.entities[tile.entity-1].team == entity.team {
-                            if closest({x, y}, closest_friend, entity.position) {
-                                closest_friend = {x, y}
-                            }
-                        }
-                    }
-                }
-            }
-
+            // Player signal bias
             if appdata.player.signals == .GoUp {
                 if move.direction == .Up {
                     weight += 1
@@ -350,7 +308,7 @@ calculate_move_weight :: proc(appdata: ^AppData, entity: ^Entity, move: Move) ->
                     weight -= 1
                 }
             }
-            
+
             if appdata.player.signals == .GoDown {
                 if move.direction == .Down {
                     weight += 1
@@ -358,7 +316,7 @@ calculate_move_weight :: proc(appdata: ^AppData, entity: ^Entity, move: Move) ->
                     weight -= 1
                 }
             }
-            
+
             if appdata.player.signals == .GoLeft {
                 if move.direction == .Left {
                     weight += 1
@@ -375,19 +333,15 @@ calculate_move_weight :: proc(appdata: ^AppData, entity: ^Entity, move: Move) ->
                 }
             }
 
-            if !has_friend && !in_direction_of(move.direction, entity.position, closest_friend) {
-                weight -= 1
-            }
+            head := appdata.entities[entity.team_head-1]
 
-            if lost {
-                weight = 0
+            if in_direction_of(move.direction, entity.position, head.position+entity.target_offset_from_head) {
+                weight += 2
             }
-
-            //fmt.println(weight, lost, closest_friend, has_friend)
 
             next_pos := entity.position + dir_to_grid_pos(move.direction)
             if .Blocked in get_tile(appdata.old_grid, next_pos).environment.flags {
-                weight = 0
+                weight = -1000
             }
         }
     }
@@ -436,20 +390,50 @@ entity_do_move :: proc(appdata: ^AppData, entity_id: EntityId, old_grid: Grid(Ti
     entity := &appdata.entities[entity_id-1]
     switch entity.move.action {
         case .Walk:
-            tile := get_tile(old_grid, entity.position)
-            set_tile_entity(&appdata.grid, entity.position, 0)
-
             new_pos := dir_to_grid_pos(entity.move.direction)+entity.position
-            set_tile_entity(&appdata.grid, new_pos, entity_id)
-            entity.position = new_pos
+            
+            tile := get_tile(appdata.grid, new_pos)
+            
+            if tile.entity == 0 || appdata.entities[tile.entity-1].move.action == .Walk {
+                set_tile_entity(&appdata.grid, entity.position, 0)
+                set_tile_entity(&appdata.grid, new_pos, entity_id)
+                entity.position = new_pos
+            }
         case .Wait:
         case .Attack:
     }
 }
 
-add_entity :: proc(appdata: ^AppData, entity: Entity) {
+create_team_leader :: proc(appdata: ^AppData, entity: Entity) -> EntityId {
+    new_id := EntityId(u32(appdata.entities_count+1))
+
+    entity := entity
+    entity.team_head = new_id
+
     appdata.entities[appdata.entities_count] = entity
+    set_tile_entity(&appdata.grid, entity.position, new_id)
     appdata.entities_count += 1
+
+    appdata.team_heads[appdata.teams_count] = new_id
+    appdata.teams_count += 1
+    return new_id
+}
+
+add_entity_to_team :: proc(appdata: ^AppData, entity: Entity, team_head: EntityId) -> EntityId {
+    new_id := EntityId(u32(appdata.entities_count+1))
+
+    head := &appdata.entities[team_head-1]
+
+    entity := entity
+    entity.target_offset_from_head = entity.position - head.position
+    entity.team_next = head.team_next
+    entity.team_head = team_head
+    head.team_next = new_id
+
+    appdata.entities[appdata.entities_count] = entity
+    set_tile_entity(&appdata.grid, entity.position, new_id)
+    appdata.entities_count += 1
+    return new_id
 }
 
 render_entities :: proc(appdata: ^AppData, viewport: WorldViewport2D) {
@@ -516,8 +500,6 @@ start_next_planning :: proc(appdata: ^AppData) {
 update :: proc(appdata: rawptr, delta_time: f32) {
     appdata: ^AppData = cast(^AppData)appdata
     appdata.delta_time = delta_time
-
-    appdata.old_grid = copy_grid(appdata.grid, mem.arena_allocator(&appdata.frame_allocator))
  
     if rl.IsKeyPressed(.UP) {
         appdata.player.signals = .GoUp
@@ -532,15 +514,17 @@ update :: proc(appdata: rawptr, delta_time: f32) {
         appdata.player.signals = .GoRight
         start_next_iteration(appdata)
     }
+    timestep := delta_time*16
     
-    if math.floor(appdata.sim_time+delta_time) > math.floor(appdata.sim_time) {
+    if math.floor(appdata.sim_time+timestep) > math.floor(appdata.sim_time) {
         start_next_planning(appdata)
+        appdata.old_grid = copy_grid(appdata.grid, mem.arena_allocator(&appdata.frame_allocator))
     }
 
     if appdata.state == .Planning {
         appdata.sim_time = math.floor(appdata.sim_time)
     } else {
-        appdata.sim_time += delta_time
+        appdata.sim_time += timestep
     }
 
     update_tiles(appdata, delta_time)
@@ -567,8 +551,12 @@ place_tile :: proc(appdata: ^AppData, viewport_id: editorui.ViewportIndex, alloc
     }
 
     if rl.IsMouseButtonPressed(.LEFT) && within {
-        appdata.active_tile = tilegrid_position
-        create_tile(appdata, tilegrid_position)
+        if rl.IsKeyDown(.LEFT_SHIFT) {
+            fmt.println(get_tile(appdata.grid, tilegrid_position))
+        } else {
+            appdata.active_tile = tilegrid_position
+            create_tile(appdata, tilegrid_position)
+        }
     }
 }
 
@@ -717,7 +705,7 @@ set_tile :: proc(grid: ^Grid($T), position: GridPosition, tile: T, allocator: me
     set_tile_base(grid, position, tile)
 }
 
-set_tile_entity :: proc(grid: ^Grid(Tile), position: GridPosition, entity_id: EntityId, allocator: mem.Allocator = context.allocator) {
+set_tile_entity :: proc(grid: ^Grid(Tile), position: GridPosition, entity_id: EntityId) {
     tile := get_tile(grid^, position)
     tile.entity = entity_id
     set_tile_base(grid, position, tile)
@@ -791,27 +779,33 @@ init_game :: proc(appdata: ^AppData) {
     }
 
     resize_grid(&appdata.grid, ut.Bounds(i32){
-        x = -10,
-        y = -10,
-        width = 20,
-        height = 20,
+        x = -20,
+        y = -20,
+        width = 40,
+        height = 40,
     }, mem.arena_allocator(&appdata.init_allocator))
 
     spawn_random_land(appdata)
     
-    add_entity(appdata, Entity {
+    head_id := create_team_leader(appdata, Entity {
         behaviour = .PlayerSignal,
         position = {0, 0},
         team = appdata.player.team,
         sprite = .PlayerHappy,
     })
     
-    add_entity(appdata, Entity {
-        behaviour = .PlayerSignal,
-        position = {1, 0},
-        team = appdata.player.team,
-        sprite = .PlayerHappy,
-    })
+    for x in 0..<4 {
+        for y in 0..<4 {
+            add_entity_to_team(appdata, Entity {
+                behaviour = .PlayerSignal,
+                position = {i32(x*3)/2, i32(y*3)/2},
+                team = appdata.player.team,
+                sprite = .PlayerHappy,
+            }, head_id)
+        }
+    }
+    
+    appdata.old_grid = copy_grid(appdata.grid, mem.arena_allocator(&appdata.frame_allocator))
 
     set_tile_entity(&appdata.grid, {0, 0}, 1)
 }
@@ -846,7 +840,7 @@ initialize_app :: proc(appdata: ^AppData, allocator: mem.Allocator) {
         },
     }
 
-    appdata.editor_settings.open_views += { .Entities }
+    appdata.editor_settings.open_views += { .State }
 
     // game
     init_game(appdata)
