@@ -77,6 +77,15 @@ Bounds :: struct(T: typeid) {
     height: T "text",
 }
 
+centered_bounds_from_lh :: proc(width: $T, height: T) -> Bounds(T) {
+    return Bounds(T) {
+        x = -width/2,
+        y = -height/2,
+        width = width,
+        height = height,
+    }
+}
+
 bounds_to_bounds :: proc($T: typeid, from: Bounds($U)) -> Bounds(T) {
     return Bounds(T) {
         x = T(from.x),
@@ -90,6 +99,10 @@ position_within_bounds :: proc(position: [2]$T, bounds: Bounds(T)) -> bool {
     within_x := bounds.x <= position.x && bounds.x + bounds.width > position.x
     within_y := bounds.y <= position.y && bounds.y + bounds.height > position.y
     return within_x && within_y
+}
+
+bounds_center :: proc(bounds: Bounds($T)) -> [2]T {
+    return {bounds.x + bounds.width/2, bounds.y + bounds.height/2}
 }
 
 f32list_to_color :: proc(color: [4]f32) -> Color {

@@ -21,21 +21,13 @@ Direction :: enum u8 {
     Right,
 }
 
-Behaviour :: enum {
-    PlayerSignal,
-}
-
 Entity :: struct {
-    flags: bit_set[enum {Something}] "dropdown",
+    flags: bit_set[enum {Something, Physics, DrawHitbox}] "dropdown",
+    velocity: la.Vector2f64,
+
+    hitbox: ut.Bounds(f64),
+    transform: ut.Transform(f64),
     sprite: FirstGameSheetId "dropdown",
-    position: GridPosition "text",
-    behaviour: Behaviour "dropdown",
-    ability_start_simtime: f32 "text",
-    move: Move "group",
-    team: u8 "text",
-    target_offset_from_head: GridPosition,
-    team_next: EntityId,
-    team_head: EntityId,
 }
 
 Environment :: struct {
@@ -46,7 +38,6 @@ Environment :: struct {
 EntityId :: distinct u32
 
 Tile :: struct {
-    entity: EntityId,
     environment: Environment "group",
 }
 
@@ -74,19 +65,19 @@ ViewportDrag :: struct {
 
 Views :: enum {
     WorldViewports,    
-    TileEditor,
     Player,
     State,
+    TileEditor,
     Entities,
 }
 
 EditorSettings :: struct {
     open_views: bit_set[Views] "dropdown",
-    selected_tile: Tile "group",
+    selected_tile: Tile,
     active_tool: enum {
-        GameTool,
         CameraControl,
-        TileBrush,
+        GameTool,
+        TileBrush
     } "dropdown",
 }
 
@@ -165,7 +156,6 @@ Signals :: enum {
 
 Player :: struct {
     signals: Signals "dropdown",
-    team: u8 "text",
 }
 
 EmptyDrag :: struct {}
@@ -193,10 +183,6 @@ AppData :: struct {
     linegrid: RectangleLineGrid,
 
     grid: Grid(Tile),
-    old_grid: Grid(Tile),
-
-    team_heads: [10]EntityId,
-    teams_count: u8,
 
     entities: []Entity,
     entities_count: u32, // zero corresponds to null ig
@@ -265,235 +251,74 @@ copy_grid :: proc(grid: Grid($T), allocator: mem.Allocator) -> Grid(T) {
     return new_grid
 }
 
-MoveAction :: enum u8 {
-    Walk,
-    Wait,
-    Attack,
-}
-
-Move :: struct {
-    action: MoveAction,
-    direction: Direction,
-}
-
-in_direction_of :: proc(dir: Direction, pos: GridPosition, target: GridPosition) -> bool {
-    return closest(dir_to_grid_pos(dir) + pos, pos, target)
-}
-
-closest :: proc(a: GridPosition, b: GridPosition, target: GridPosition) -> (is_a: bool) {
-    at: GridPosition = {a.x - target.x, a.y - target.y}
-    bt: GridPosition = {b.x - target.x, b.y - target.y}
-
-    return at.x*at.x+at.y*at.y < bt.x*bt.x+bt.y*bt.y
-}
-
-calculate_move_weight :: proc(appdata: ^AppData, entity: ^Entity, move: Move) -> i16 {
-    weight: i16 = 0
-
-    if entity.team == appdata.player.team {
-        switch move.action {
-        case .Attack:
-        case .Wait:
-            if appdata.player.signals == .Wait {
-                weight += 1
-            }
-        case .Walk:
-            weight += 1
-
-            // Player signal bias
-            if appdata.player.signals == .GoUp {
-                if move.direction == .Up {
-                    weight += 1
-                } else if move.direction == .Down {
-                    weight -= 1
-                }
-            }
-
-            if appdata.player.signals == .GoDown {
-                if move.direction == .Down {
-                    weight += 1
-                } else if move.direction == .Up {
-                    weight -= 1
-                }
-            }
-
-            if appdata.player.signals == .GoLeft {
-                if move.direction == .Left {
-                    weight += 1
-                } else if move.direction == .Right {
-                    weight -= 1
-                }
-            }
-
-            if appdata.player.signals == .GoRight {
-                if move.direction == .Right {
-                    weight += 1
-                } else if move.direction == .Left {
-                    weight -= 1
-                }
-            }
-
-            head := appdata.entities[entity.team_head-1]
-
-            if in_direction_of(move.direction, entity.position, head.position+entity.target_offset_from_head) {
-                weight += 2
-            }
-
-            next_pos := entity.position + dir_to_grid_pos(move.direction)
-            if .Blocked in get_tile(appdata.old_grid, next_pos).environment.flags {
-                weight = -1000
-            }
-        }
-    }
-
-    return weight
-}
-
-entity_ai_next_move :: proc(appdata: ^AppData, entity: ^Entity) -> Move {
-    highest_weight: i16 = 0
-    best_move: Move
-
-    for i in 0..<int(max(MoveAction)) {
-        move := MoveAction(i)
-
-        for j in 0..<4 {
-            direction := Direction(j)
-            next_move := Move {move, direction}
-            next_weight := calculate_move_weight(appdata, entity, next_move)
-
-            if next_weight > highest_weight {
-                highest_weight = next_weight
-                best_move = next_move
-            }
-        }
-    }
-
-    return best_move
-}
-
-dir_to_grid_pos :: proc(dir: Direction) -> GridPosition {
-    switch dir {
-    case .Up:
-        return {0, -1}
-    case .Down:
-        return {0, 1}
-    case .Left:
-        return {-1, 0}
-    case .Right:
-        return {1, 0}
-    }
-    unreachable()
-}
-
-// move is done at end of 0..1
-entity_do_move :: proc(appdata: ^AppData, entity_id: EntityId, old_grid: Grid(Tile)) {
-    entity := &appdata.entities[entity_id-1]
-    switch entity.move.action {
-        case .Walk:
-            new_pos := dir_to_grid_pos(entity.move.direction)+entity.position
-            
-            tile := get_tile(appdata.grid, new_pos)
-            
-            if tile.entity == 0 || appdata.entities[tile.entity-1].move.action == .Walk {
-                set_tile_entity(&appdata.grid, entity.position, 0)
-                set_tile_entity(&appdata.grid, new_pos, entity_id)
-                entity.position = new_pos
-            }
-        case .Wait:
-        case .Attack:
-    }
-}
-
-create_team_leader :: proc(appdata: ^AppData, entity: Entity) -> EntityId {
-    new_id := EntityId(u32(appdata.entities_count+1))
-
-    entity := entity
-    entity.team_head = new_id
-
-    appdata.entities[appdata.entities_count] = entity
-    set_tile_entity(&appdata.grid, entity.position, new_id)
-    appdata.entities_count += 1
-
-    appdata.team_heads[appdata.teams_count] = new_id
-    appdata.teams_count += 1
-    return new_id
-}
-
-add_entity_to_team :: proc(appdata: ^AppData, entity: Entity, team_head: EntityId) -> EntityId {
-    new_id := EntityId(u32(appdata.entities_count+1))
-
-    head := &appdata.entities[team_head-1]
-
-    entity := entity
-    entity.target_offset_from_head = entity.position - head.position
-    entity.team_next = head.team_next
-    entity.team_head = team_head
-    head.team_next = new_id
-
-    appdata.entities[appdata.entities_count] = entity
-    set_tile_entity(&appdata.grid, entity.position, new_id)
-    appdata.entities_count += 1
-    return new_id
-}
-
 render_entities :: proc(appdata: ^AppData, viewport: WorldViewport2D) {
     mat := get_viewport_matrix(viewport)
 
     for i in 0..<appdata.entities_count {
         entity: ^Entity = &appdata.entities[i]
-        
-        t := appdata.sim_time - math.floor(appdata.sim_time)
 
-        switch entity.move.action {
-        case .Walk:
-            next_pos := dir_to_grid_pos(entity.move.direction)
-            render_pos := la.Vector2f64{ f64(next_pos.x), f64(next_pos.y) } * f64(t) + la.Vector2f64{ f64(entity.position.x), f64(entity.position.y) }
+        if .DrawHitbox in entity.flags {
+            world_hitbox := ut.apply_matrix_to_bounds(
+                mat * ut.create_matrix_from_transform(entity.transform),
+                entity.hitbox
+            )
 
-            id: FirstGameSheetId = entity.sprite
-            
-            viewport_bounds := ut.apply_matrix_to_bounds(mat, ut.Bounds(f64) {
-                x = render_pos.x,
-                y = render_pos.y,
-                width = 1,
-                height = 1,
-            })
-
-            draw_sprite(id, appdata.sprite_sheet, ut.bounds_to_bounds(f32, viewport_bounds))
-        case .Wait:
-            render_pos := la.Vector2f64{ f64(entity.position.x), f64(entity.position.y) }
-
-            id: FirstGameSheetId = entity.sprite
-            
-            viewport_bounds := ut.apply_matrix_to_bounds(mat, ut.Bounds(f64) {
-                x = render_pos.x,
-                y = render_pos.y,
-                width = 1,
-                height = 1,
-            })
-
-            draw_sprite(id, appdata.sprite_sheet, ut.bounds_to_bounds(f32, viewport_bounds))
-        case .Attack:
+            rl.DrawRectangleLinesEx(
+                transmute(rl.Rectangle)ut.bounds_to_bounds(f32, world_hitbox), 
+                1.0,
+                auto_cast ut.RED
+            )
         }
     }
 }
 
-start_next_iteration :: proc(appdata: ^AppData) {
-    if appdata.state == .PlayingAttack {
-        return
-    }
+update_entities :: proc(appdata: ^AppData, delta_time: f32) {
     for i in 0..<appdata.entities_count {
-        entity: ^Entity = &appdata.entities[i]
-        move := entity_ai_next_move(appdata, entity)
-        entity.move = move
-    }
-    appdata.state = .PlayingAttack
-}
+        entity := &appdata.entities[i]
 
-start_next_planning :: proc(appdata: ^AppData) {
-    for i in 0..<appdata.entities_count {
-        entity: ^Entity = &appdata.entities[i]
-        entity_do_move(appdata, EntityId(u32(i+1)), appdata.old_grid)
-        appdata.state = .Planning
+        if .Physics in entity.flags {
+            rx := i32(entity.hitbox.width / appdata.linegrid.width)
+            ry := i32(entity.hitbox.height / appdata.linegrid.height)
+
+            entity.velocity.y += 0.00000981
+            entity.velocity.y = max(abs(entity.velocity.y), 0.01)*math.sign(entity.velocity.y)
+            entity.transform.offset += entity.velocity
+
+            gridpos := world_to_tile_pos(entity.transform.offset, appdata.linegrid)
+            highest_pentration: f64 = 0
+            highest_box: ut.Bounds(f64)
+            highest_normal: la.Vector2f64
+            collide := false
+
+            for x in -rx/2..=rx/2 {
+                for y in -ry/2..=ry/2 {
+                    world_hitbox := ut.apply_matrix_to_bounds(
+                        ut.create_matrix_from_transform(entity.transform), 
+                        entity.hitbox
+                    )
+
+                    tile_pos := gridpos + {x, y}
+                    tile := get_tile(appdata.grid, tile_pos)
+                    
+                    if .Blocked in tile.environment.flags {
+                        tile_world_hitbox := get_tile_bounds(appdata.linegrid, appdata.grid, tile_pos)
+                        hit, normal, depth := collide_aabb(world_hitbox, tile_world_hitbox)
+
+                        if hit && depth > highest_pentration {
+                            highest_box = tile_world_hitbox
+                            highest_pentration = depth
+                            highest_normal = normal
+                            collide = true
+                        }
+                    }
+                }
+            }
+            
+            if collide {
+                entity.transform.offset -= highest_normal * highest_pentration
+                entity.velocity = {0, 0}
+            }
+        }
     }
 }
 
@@ -501,39 +326,22 @@ update :: proc(appdata: rawptr, delta_time: f32) {
     appdata: ^AppData = cast(^AppData)appdata
     appdata.delta_time = delta_time
  
-    if rl.IsKeyPressed(.UP) {
-        appdata.player.signals = .GoUp
-        start_next_iteration(appdata)
-    } else if rl.IsKeyPressed(.DOWN) {
-        appdata.player.signals = .GoDown
-        start_next_iteration(appdata)
-    } else if rl.IsKeyPressed(.LEFT) {
-        appdata.player.signals = .GoLeft
-        start_next_iteration(appdata)
-    } else if rl.IsKeyPressed(.RIGHT) {
-        appdata.player.signals = .GoRight
-        start_next_iteration(appdata)
-    }
-    timestep := delta_time*16
-    
-    if math.floor(appdata.sim_time+timestep) > math.floor(appdata.sim_time) {
-        start_next_planning(appdata)
-        appdata.old_grid = copy_grid(appdata.grid, mem.arena_allocator(&appdata.frame_allocator))
-    }
-
-    if appdata.state == .Planning {
-        appdata.sim_time = math.floor(appdata.sim_time)
-    } else {
-        appdata.sim_time += timestep
-    }
-
     update_tiles(appdata, delta_time)
+    update_entities(appdata, delta_time)
 
     mem.arena_free_all(&appdata.frame_allocator)
 }
 
 create_tile :: proc(appdata: ^AppData, position: GridPosition) {
     set_tile_base(&appdata.grid, position, appdata.editor_settings.selected_tile)
+}
+
+world_to_tile_pos :: proc(world_mouse_pos: la.Vector2f64, linegrid: RectangleLineGrid) -> GridPosition {
+    tilegrid_position := [2]i32{
+        i32(math.floor(world_mouse_pos.x / f64(linegrid.width)) * linegrid.width),
+        i32(math.floor(world_mouse_pos.y / f64(linegrid.height)) * linegrid.height)
+    }
+    return tilegrid_position
 }
 
 place_tile :: proc(appdata: ^AppData, viewport_id: editorui.ViewportIndex, allocator: mem.Allocator) {
@@ -545,14 +353,11 @@ place_tile :: proc(appdata: ^AppData, viewport_id: editorui.ViewportIndex, alloc
     within := ut.position_within_bounds(la.Vector2f64{f64(mouse_pos.x), f64(mouse_pos.y)}, viewport.screen_rect)
     world_mouse_pos := screen_to_world_space(viewport^, auto_cast mouse_pos)
 
-    tilegrid_position := [2]i32{
-        i32(math.floor(world_mouse_pos.x / f64(tile_grid.width)) * tile_grid.width),
-        i32(math.floor(world_mouse_pos.y / f64(tile_grid.height)) * tile_grid.height)
-    }
+    tilegrid_position := world_to_tile_pos(world_mouse_pos, appdata.linegrid)
 
     if rl.IsMouseButtonPressed(.LEFT) && within {
         if rl.IsKeyDown(.LEFT_SHIFT) {
-            fmt.println(get_tile(appdata.grid, tilegrid_position))
+            fmt.println(get_tile(appdata.grid, tilegrid_position), tilegrid_position)
         } else {
             appdata.active_tile = tilegrid_position
             create_tile(appdata, tilegrid_position)
@@ -705,16 +510,14 @@ set_tile :: proc(grid: ^Grid($T), position: GridPosition, tile: T, allocator: me
     set_tile_base(grid, position, tile)
 }
 
-set_tile_entity :: proc(grid: ^Grid(Tile), position: GridPosition, entity_id: EntityId) {
-    tile := get_tile(grid^, position)
-    tile.entity = entity_id
-    set_tile_base(grid, position, tile)
-}
-
 get_tile_base :: proc(tiles: []$T, x, y, width: i32, position: GridPosition) -> ^T {
     idx_y := int(width) * int(position.y - y)
     idx_x := int(position.x - x)
     return &tiles[idx_y + idx_x]
+}
+
+get_tile_bounds :: proc(linegrid: RectangleLineGrid, grid: Grid($T), position: GridPosition) -> ut.Bounds(f64) {
+    return auto_cast {f64(position.x)*linegrid.width, f64(position.y)*linegrid.height, linegrid.width, linegrid.height}
 }
 
 get_tile :: proc(grid: Grid($T), position: GridPosition) -> T {
@@ -764,6 +567,31 @@ spawn_random_land :: proc(appdata: ^AppData) {
     }
 }
 
+spawn_land_borders :: proc(appdata: ^AppData) {
+    frame_allocator := mem.arena_allocator(&appdata.frame_allocator)
+    
+    block := Tile {
+        environment = Environment {
+            flags = { .Blocked, .Exists },
+            sprite = .ChoosePlus
+        }
+    }
+
+    for x in 1..<appdata.grid.bounds.width-1 {
+        set_tile_base(&appdata.grid, {x + appdata.grid.bounds.x, appdata.grid.bounds.y}, block)
+        set_tile_base(&appdata.grid, {x + appdata.grid.bounds.x, appdata.grid.bounds.y+appdata.grid.bounds.height-1}, block)
+    }
+    for y in 0..<appdata.grid.bounds.height {
+        set_tile_base(&appdata.grid, {appdata.grid.bounds.x, appdata.grid.bounds.y + y}, block)
+        set_tile_base(&appdata.grid, {appdata.grid.bounds.x+appdata.grid.bounds.width-1, appdata.grid.bounds.y + y}, block)
+    }
+}
+
+create_entity :: proc(appdata: ^AppData, entity: Entity) {
+    appdata.entities[appdata.entities_count] = entity
+    appdata.entities_count += 1
+}
+
 init_game :: proc(appdata: ^AppData) {
     appdata.linegrid = RectangleLineGrid {
         width = 1,
@@ -775,39 +603,27 @@ init_game :: proc(appdata: ^AppData) {
 
     appdata.player = Player {
         signals = .Wait,
-        team = 0,
     }
 
     resize_grid(&appdata.grid, ut.Bounds(i32){
-        x = -20,
+        x = -8,
         y = -20,
-        width = 40,
-        height = 40,
+        width = 16,
+        height = 80,
     }, mem.arena_allocator(&appdata.init_allocator))
 
-    spawn_random_land(appdata)
-    
-    head_id := create_team_leader(appdata, Entity {
-        behaviour = .PlayerSignal,
-        position = {0, 0},
-        team = appdata.player.team,
-        sprite = .PlayerHappy,
-    })
-    
-    for x in 0..<4 {
-        for y in 0..<4 {
-            add_entity_to_team(appdata, Entity {
-                behaviour = .PlayerSignal,
-                position = {i32(x*3)/2, i32(y*3)/2},
-                team = appdata.player.team,
-                sprite = .PlayerHappy,
-            }, head_id)
-        }
-    }
-    
-    appdata.old_grid = copy_grid(appdata.grid, mem.arena_allocator(&appdata.frame_allocator))
+    //spawn_random_land(appdata)
+    spawn_land_borders(appdata)
 
-    set_tile_entity(&appdata.grid, {0, 0}, 1)
+    create_entity(appdata, Entity {
+        flags = { .Physics, .DrawHitbox },
+        sprite = .PlayerHappy,
+        hitbox = ut.centered_bounds_from_lh(f64(1.3), 1.3),
+        transform = {
+            offset = {0, 0},
+            scale = {1, 1}
+        }
+    })
 }
 
 initialize_app :: proc(appdata: ^AppData, allocator: mem.Allocator) {
