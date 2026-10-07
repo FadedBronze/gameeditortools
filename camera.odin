@@ -65,3 +65,15 @@ screen_to_world_space :: proc(viewport: WorldViewport2D, screen_position: la.Vec
 
     return ut.apply_matrix_to_point(screen_to_world_mat, screen_position)
 }
+
+get_viewport_matrix :: proc(viewport: WorldViewport2D) -> la.Matrix3x3f64 {
+    camera_offset := ut.create_matrix(-viewport.camera_position, {1, 1}, 0)
+    camera_matrix := ut.create_matrix({0, 0}, viewport.camera_scale, viewport.camera_rotation)
+    view_matrix := ut.create_matrix_from_transform(ut.Transform(f64) {
+        rotation_rad = 0,
+        offset = {viewport.screen_rect.x+viewport.screen_rect.width/2, viewport.screen_rect.y+viewport.screen_rect.height/2},
+        scale = {viewport.world_to_screenspace_scale, viewport.world_to_screenspace_scale},
+    })
+
+    return la.matrix_mul(view_matrix, la.matrix_mul(camera_matrix, camera_offset))
+}
