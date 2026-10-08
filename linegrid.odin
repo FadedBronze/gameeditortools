@@ -7,8 +7,10 @@ import ut "project:utils"
 import "core:math"
 
 RectangleLineGrid :: struct {
+    // cell width and height
     width: f64 "text",
     height: f64 "text",
+    // tranform applied after
     transform: ut.Transform(f64) "group" 
 }
 

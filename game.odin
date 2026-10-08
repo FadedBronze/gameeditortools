@@ -7,7 +7,7 @@ import rl "vendor:raylib"
 import la "core:math/linalg"
 import "core:math/rand"
 import "core:fmt"
-
+import "core:math"
 import "core:mem"
 
 Direction :: enum u8 {
@@ -59,6 +59,9 @@ Views :: enum {
 EditorSettings :: struct {
     open_views: bit_set[Views] "dropdown",
     selected_tile: Tile,
+    flags: bit_set[enum {
+        ShowGridOuterBounds
+    }] "dropdown",
     active_tool: enum {
         CameraControl,
         GameTool,
@@ -128,8 +131,46 @@ update :: proc(appdata: rawptr, delta_time: f32) {
     appdata: ^AppData = cast(^AppData)appdata
     appdata.delta_time = delta_time
  
-    update_tiles(appdata, delta_time)
-    update_entities(appdata, delta_time)
+    b := appdata.grid.bounds
+
+    for y in b.y..<b.height+b.y {
+        for x in b.x..<b.width+b.x {
+            //TODO
+        }
+    }
+
+    for i in 0..<appdata.entities_count {
+        entity := &appdata.entities[i]
+
+        if .Physics in entity.flags {
+            entity.velocity.y += 0.000000981
+            //entity.velocity.y = 0.01 //max(abs(entity.velocity.y), 0.01)*math.sign(entity.velocity.y)
+
+            entity.transform.offset += entity.velocity
+
+            hit := false
+            normal := la.Vector2f64{0.0, 0.0}
+            depth: f64 = 0
+
+            for bound, i in appdata.computed_simplified_collision_hitboxes {
+                box := ut.apply_matrix_to_bounds(ut.create_matrix_from_transform(entity.transform), entity.hitbox)
+                h, n, d := collide_aabb(box, bound)
+
+                if h {
+                    hit = true
+                    normal = n
+                    depth = d
+                    break;
+                }
+            }
+
+            if hit {
+                entity.transform.offset -= normal * depth
+                entity.velocity = {0, 0}
+            }
+        }
+    }
+
 
     mem.arena_free_all(&appdata.frame_allocator)
 }
@@ -155,47 +196,16 @@ place_tile :: proc(appdata: ^AppData, viewport_id: editorui.ViewportIndex, alloc
     }
 }
 
-render_tile :: proc(appdata: ^AppData, pos: GridPosition, render_pos: la.Vector2f64, mat: la.Matrix3f64) {
-    tile := get_tile(appdata.grid, pos)
-
-    if .Exists in tile.environment.flags {
-        id: FirstGameSheetId = tile.environment.sprite
-        
-        viewport_bounds := ut.apply_matrix_to_bounds(mat, ut.Bounds(f64) {
-            x = render_pos.x,
-            y = render_pos.y,
-            width = 1,
-            height = 1,
-        })
-
-        draw_sprite(id, appdata.sprite_sheet, ut.bounds_to_bounds(f32, viewport_bounds))
+grid_bounds_to_worldspace_bounds :: proc(bound: ut.Bounds(f64), linegrid: RectangleLineGrid) -> (worldspace_bounds: ut.Bounds(f64)) {
+    cellsize_scaled_cell_bound := ut.Bounds(f64) {
+        bound.x*linegrid.width, 
+        bound.y*linegrid.height, 
+        bound.width*linegrid.width, 
+        bound.height*linegrid.height
     }
-}
 
-update_tile :: proc(appdata: ^AppData, position: GridPosition, dt: f32) {
-    //TODO
-}
-
-update_tiles :: proc(appdata: ^AppData, dt: f32) {
-    b := appdata.grid.bounds
-
-    for y in b.y..<b.height+b.y {
-        for x in b.x..<b.width+b.x {
-            update_tile(appdata, {x, y}, dt)
-        }
-    }
-}
-
-render_tiles :: proc(appdata: ^AppData, viewport: WorldViewport2D, linegrid: RectangleLineGrid, grid: Grid($T)) {
-    mat := ut.create_matrix_from_transform(linegrid.transform) * get_viewport_matrix(viewport)
-    b := grid.bounds
-
-    for y in b.y..<b.height+b.y {
-        for x in b.x..<b.width+b.x {
-            tile := get_tile(grid, {x, y})
-            render_tile(appdata, {x, y}, {f64(x), f64(y)}, mat)
-        }
-    }
+    mat := ut.create_matrix_from_transform(linegrid.transform)
+    return ut.apply_matrix_to_bounds(mat, cellsize_scaled_cell_bound)
 }
 
 render :: proc(appdata: rawptr, screen_rect: ut.Bounds(f32), id: editorui.ViewportIndex) {
@@ -206,9 +216,72 @@ render :: proc(appdata: rawptr, screen_rect: ut.Bounds(f32), id: editorui.Viewpo
     rl.DrawRectangleRec(transmute(rl.Rectangle)screen_rect, rl.WHITE)
 
     render_tile_grid_lines(viewport^, appdata.linegrid)
-    render_tiles(appdata, viewport^, appdata.linegrid, appdata.grid)
 
-    render_entities(appdata, viewport^)
+    // render tiles
+    mat := ut.create_matrix_from_transform(appdata.linegrid.transform) * get_viewport_matrix(viewport^)
+    b := appdata.grid.bounds
+
+    for y in b.y..<b.height+b.y {
+        for x in b.x..<b.width+b.x {
+            tile := get_tile(appdata.grid, {x, y})
+
+            if .Exists in tile.environment.flags {
+                id: FirstGameSheetId = tile.environment.sprite
+                
+                viewport_bounds := ut.apply_matrix_to_bounds(mat, ut.Bounds(f64) {
+                    x = f64(x),
+                    y = f64(y),
+                    width = 1,
+                    height = 1,
+                })
+
+                draw_sprite(id, appdata.sprite_sheet, ut.bounds_to_bounds(f32, viewport_bounds))
+            }
+        }
+    }
+
+    // entities
+    viewport_mat := get_viewport_matrix(viewport^)
+    for i in 0..<appdata.entities_count {
+        entity: ^Entity = &appdata.entities[i]
+
+        if .DrawHitbox in entity.flags {
+            world_hitbox := ut.apply_matrix_to_bounds(
+                viewport_mat * ut.create_matrix_from_transform(entity.transform),
+                entity.hitbox
+            )
+
+            rl.DrawRectangleLinesEx(
+                transmute(rl.Rectangle)ut.bounds_to_bounds(f32, world_hitbox), 
+                1.0,
+                auto_cast ut.RED
+            )
+        }
+    }
+
+    // hitboxes
+    for i in 0..<len(appdata.computed_simplified_collision_hitboxes) {
+        box := appdata.computed_simplified_collision_hitboxes[i]
+        box = ut.apply_matrix_to_bounds(viewport_mat, box)
+
+        rl.DrawRectangleLinesEx(
+            transmute(rl.Rectangle)ut.bounds_to_bounds(f32, box), 
+            1.0,
+            auto_cast ut.RED
+        )
+    }
+
+    if .ShowGridOuterBounds in appdata.editor_settings.flags {
+        box := ut.bounds_to_bounds(f64, appdata.grid.bounds)
+        box = grid_bounds_to_worldspace_bounds(box, appdata.linegrid)
+        box = ut.apply_matrix_to_bounds(viewport_mat, box)
+        
+        rl.DrawRectangleLinesEx(
+            transmute(rl.Rectangle)ut.bounds_to_bounds(f32, box), 
+            1.0,
+            auto_cast ut.ORANGE,
+        )
+    }
 
     switch appdata.editor_settings.active_tool {
     case .CameraControl:
@@ -228,46 +301,6 @@ render :: proc(appdata: rawptr, screen_rect: ut.Bounds(f32), id: editorui.Viewpo
     clay.BeginLayout()
     elements := clay.EndLayout(appdata.delta_time)
     clay_renderer(elements)
-}
-
-render_entities :: proc(appdata: ^AppData, viewport: WorldViewport2D) {
-    mat := get_viewport_matrix(viewport)
-
-    for i in 0..<appdata.entities_count {
-        entity: ^Entity = &appdata.entities[i]
-
-        if .DrawHitbox in entity.flags {
-            world_hitbox := ut.apply_matrix_to_bounds(
-                mat * ut.create_matrix_from_transform(entity.transform),
-                entity.hitbox
-            )
-
-            rl.DrawRectangleLinesEx(
-                transmute(rl.Rectangle)ut.bounds_to_bounds(f32, world_hitbox), 
-                1.0,
-                auto_cast ut.RED
-            )
-        }
-    }
-}
-
-update_entities :: proc(appdata: ^AppData, delta_time: f32) {
-    for i in 0..<appdata.entities_count {
-        //entity := &appdata.entities[i]
-
-        //if .Physics in entity.flags {
-        //    entity.velocity.y += 0.00000981
-        //    entity.velocity.y = max(abs(entity.velocity.y), 0.01)*math.sign(entity.velocity.y)
-        //    entity.transform.offset += entity.velocity
-
-        //    normal, depth, collide := check_collision_aabb_tilegrid(entity, appdata.grid, appdata.linegrid)
-
-        //    if collide {
-        //        entity.transform.offset -= normal * depth
-        //        entity.velocity = {0, 0}
-        //    }
-        //}
-    }
 }
 
 spawn_random_land :: proc(appdata: ^AppData) {
@@ -313,41 +346,7 @@ create_entity :: proc(appdata: ^AppData, entity: Entity) {
     appdata.entities_count += 1
 }
 
-init_game :: proc(appdata: ^AppData) {
-    appdata.linegrid = RectangleLineGrid {
-        width = 1,
-        height = 1,
-        transform = ut.TRANSFORM_IDENTITY_F64,
-    }
-
-    appdata.sprite_sheet = create_first_game_sheet()
-
-    appdata.player = Player {
-        signals = .Wait,
-    }
-
-    resize_grid(&appdata.grid, ut.Bounds(i32){
-        x = -8,
-        y = -20,
-        width = 16,
-        height = 80,
-    }, mem.arena_allocator(&appdata.init_allocator))
-
-    //spawn_random_land(appdata)
-    spawn_land_borders(appdata)
-
-    create_entity(appdata, Entity {
-        flags = { .Physics, .DrawHitbox },
-        sprite = .PlayerHappy,
-        hitbox = ut.centered_bounds_from_lh(f64(1.3), 1.3),
-        transform = {
-            offset = {0, 0},
-            scale = {1, 1}
-        }
-    })
-}
-
-initialize_app :: proc(appdata: ^AppData, allocator: mem.Allocator) {
+init_app :: proc(appdata: ^AppData, allocator: mem.Allocator) {
     // memory
     appdata.frame_buffer = make([]u8, FRAME_MEMORY_BUFFER_SIZE)
     mem.arena_init(&appdata.frame_allocator, appdata.frame_buffer)
@@ -379,6 +378,42 @@ initialize_app :: proc(appdata: ^AppData, allocator: mem.Allocator) {
 
     appdata.editor_settings.open_views += { .State }
 
-    // game
-    init_game(appdata)
+    // game initialization
+    {
+        appdata.linegrid = RectangleLineGrid {
+            width = 1,
+            height = 1,
+            transform = ut.TRANSFORM_IDENTITY_F64,
+        }
+
+        appdata.sprite_sheet = create_first_game_sheet()
+
+        appdata.player = Player {
+            signals = .Wait,
+        }
+
+        resize_grid(&appdata.grid, ut.Bounds(i32){
+            x = -8,
+            y = -20,
+            width = 16,
+            height = 80,
+        }, mem.arena_allocator(&appdata.init_allocator))
+
+        //spawn_random_land(appdata)
+        spawn_land_borders(appdata)
+        
+        // hitboxes
+        worldspace_bounds := greedy_mesh_grid_into_worldspace_aabb_bounds_list(appdata.grid, appdata.linegrid)
+        appdata.computed_simplified_collision_hitboxes = worldspace_bounds;
+
+        create_entity(appdata, Entity {
+            flags = { .Physics, .DrawHitbox },
+            sprite = .PlayerHappy,
+            hitbox = ut.centered_bounds_from_lh(f64(1.3), 1.3),
+            transform = {
+                offset = {0, 0},
+                scale = {1, 1}
+            }
+        })
+    }
 }

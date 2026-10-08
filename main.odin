@@ -197,7 +197,7 @@ main :: proc() {
     }
     
     appdata: AppData
-    initialize_app(&appdata, context.allocator)
+    init_app(&appdata, context.allocator)
     
     editorui.initialize_fn_ptrs(
         &editor_ui, 

@@ -3,6 +3,29 @@ package main
 import ut "utils"
 import "core:testing"
 
+// NOTE
+// everything part of the grid (which this is not independant of) 
+// needs to be scaled by its transform because they act like
+// transform children of it
+// in the case that its independant of the alignment of the grid
+// that transform doesn't need to be applied (like in the case of a player)
+greedy_mesh_grid_into_worldspace_aabb_bounds_list :: proc(
+    grid: Grid(Tile), 
+    linegrid: RectangleLineGrid,
+    allocator := context.allocator, 
+    temp_allocator := context.temp_allocator,
+) -> (worldspace_bounds: []ut.Bounds(f64)) {
+    bounds := greedy_mesh_grid_into_aabb_list(grid, allocator, temp_allocator);
+
+    for i in 0..<len(bounds) {
+        bounds[i] = grid_bounds_to_worldspace_bounds(bounds[i], linegrid)
+    }
+
+    return bounds
+}
+
+import "core:fmt"
+
 greedy_mesh_grid_into_aabb_list :: proc(
     grid: Grid(Tile), 
     allocator := context.allocator, 
@@ -25,7 +48,7 @@ greedy_mesh_grid_into_aabb_list :: proc(
         new_collision_row_start: i32 = 0;
         new_collision_row_start_found := false;
 
-        for x < max_x {
+        for x < max_x+1 {
             empty := .Blocked not_in get_tile(grid, {x, y}).environment.flags;
             filled := get_tile(filled_grid, {x, y});
             
@@ -38,7 +61,9 @@ greedy_mesh_grid_into_aabb_list :: proc(
                 if empty || filled {
                     new_collision_row_end := x;
 
-                    collision_hitbox_y_layers: i32 = 0;
+                    w := 0
+
+                    collision_hitbox_y_layers: i32 = 1;
                     complete_row := true;
                     
                     for y + collision_hitbox_y_layers < max_y && complete_row {
@@ -79,13 +104,15 @@ greedy_mesh_grid_into_aabb_list :: proc(
     return simplified_collision_hitboxes[0:]
 }
 
+// these testcases were constructed from images 
+// under notes (not followed exactly though)
+
 @(test)
 test_greedy_meshing_negative :: proc(t: ^testing.T) {
     // simple collidable tile
     s: Tile;
     s.environment.flags = { .Blocked, .Exists };
-
-    grid: Grid(Tile)
+grid: Grid(Tile)
 
     resize_grid(&grid, ut.Bounds(i32){
         x = -4,
@@ -174,8 +201,8 @@ test_greedy_meshing_negative :: proc(t: ^testing.T) {
         },
     }
 
-    for bound, i in bounds {
-        testing.expect_value(t, bound, expected_bounds[i]);
+    for expected, i in expected_bounds {
+        testing.expect_value(t, bounds[i], expected);
     }
 }
 
@@ -288,7 +315,208 @@ test_greedy_meshing_complex :: proc(t: ^testing.T) {
         },
     }
 
-    for bound, i in bounds {
-        testing.expect_value(t, bound, expected_bounds[i]);
+    for expected, i in expected_bounds {
+        testing.expect_value(t, bounds[i], expected);
+    }
+}
+
+@(test)
+test_greedy_meshing_edge :: proc(t: ^testing.T) {
+    // simple collidable tile
+    s: Tile;
+    s.environment.flags = { .Blocked, .Exists };
+
+    grid: Grid(Tile)
+
+    resize_grid(&grid, ut.Bounds(i32){
+        x = 0,
+        y = 0,
+        width = 11,
+        height = 9,
+    }, context.allocator);
+    
+    // top
+    set_tile(&grid, {0, 0}, s);
+    set_tile(&grid, {1, 0}, s);
+    set_tile(&grid, {2, 0}, s);
+    set_tile(&grid, {3, 0}, s);
+    set_tile(&grid, {4, 0}, s);
+    set_tile(&grid, {5, 0}, s);
+    set_tile(&grid, {6, 0}, s);
+    set_tile(&grid, {7, 0}, s);
+    set_tile(&grid, {8, 0}, s);
+    set_tile(&grid, {9, 0}, s);
+    set_tile(&grid, {10, 0}, s);
+
+    // left
+    set_tile(&grid, {0, 1}, s);
+    set_tile(&grid, {0, 2}, s);
+    set_tile(&grid, {0, 3}, s);
+    set_tile(&grid, {0, 4}, s);
+    set_tile(&grid, {0, 5}, s);
+    set_tile(&grid, {0, 6}, s);
+    set_tile(&grid, {0, 7}, s);
+    set_tile(&grid, {0, 8}, s);
+    
+    // right
+    set_tile(&grid, {10, 1}, s);
+    set_tile(&grid, {10, 2}, s);
+    set_tile(&grid, {10, 3}, s);
+    set_tile(&grid, {10, 4}, s);
+    set_tile(&grid, {10, 5}, s);
+    set_tile(&grid, {10, 6}, s);
+    set_tile(&grid, {10, 7}, s);
+    set_tile(&grid, {10, 8}, s);
+
+    // bottom
+    set_tile(&grid, {1, 8}, s);
+    set_tile(&grid, {2, 8}, s);
+    set_tile(&grid, {3, 8}, s);
+    set_tile(&grid, {4, 8}, s);
+    set_tile(&grid, {5, 8}, s);
+    set_tile(&grid, {6, 8}, s);
+    set_tile(&grid, {7, 8}, s);
+    set_tile(&grid, {8, 8}, s);
+    set_tile(&grid, {9, 8}, s);
+    
+    bounds := greedy_mesh_grid_into_aabb_list(grid)
+    
+    expected_bounds: []ut.Bounds(f64) = {
+        ut.Bounds(f64) {
+            x = 0,
+            y = 0,
+            width = 11,
+            height = 1,
+        },
+        ut.Bounds(f64) {
+            x = 0,
+            y = 1,
+            width = 1,
+            height = 8,
+        },
+        ut.Bounds(f64) {
+            x = 10,
+            y = 1,
+            width = 1,
+            height = 8,
+        },
+        ut.Bounds(f64) {
+            x = 1,
+            y = 8,
+            width = 9,
+            height = 1,
+        },
+    }
+    
+    for expected, i in expected_bounds {
+        testing.expect_value(t, bounds[i], expected);
+    }
+}
+
+@(test)
+test_greedy_meshing_extra_edge_cases :: proc(t: ^testing.T) {
+    // simple collidable tile
+    s: Tile;
+    s.environment.flags = { .Blocked, .Exists };
+
+    grid: Grid(Tile)
+
+    resize_grid(&grid, ut.Bounds(i32){
+        x = 0,
+        y = 0,
+        width = 11,
+        height = 9,
+    }, context.allocator);
+    
+    // top
+    set_tile(&grid, {0, 0}, s);
+    set_tile(&grid, {1, 0}, s);
+    set_tile(&grid, {2, 0}, s);
+    set_tile(&grid, {3, 0}, s);
+    set_tile(&grid, {4, 0}, s);
+
+    set_tile(&grid, {6, 0}, s);
+    set_tile(&grid, {7, 0}, s);
+    set_tile(&grid, {8, 0}, s);
+    set_tile(&grid, {9, 0}, s);
+    set_tile(&grid, {10, 0}, s);
+
+    // left
+
+    set_tile(&grid, {0, 3}, s);
+    set_tile(&grid, {0, 4}, s);
+
+    set_tile(&grid, {0, 6}, s);
+    
+    // right
+    set_tile(&grid, {10, 1}, s);
+    set_tile(&grid, {10, 2}, s);
+    set_tile(&grid, {10, 3}, s);
+    set_tile(&grid, {10, 4}, s);
+    set_tile(&grid, {10, 5}, s);
+    set_tile(&grid, {10, 6}, s);
+    set_tile(&grid, {10, 7}, s);
+    set_tile(&grid, {10, 8}, s);
+
+    // bottom
+    set_tile(&grid, {1, 8}, s);
+    set_tile(&grid, {2, 8}, s);
+    set_tile(&grid, {3, 8}, s);
+    set_tile(&grid, {4, 8}, s);
+
+    set_tile(&grid, {6, 8}, s);
+    set_tile(&grid, {7, 8}, s);
+    set_tile(&grid, {8, 8}, s);
+    set_tile(&grid, {9, 8}, s);
+    
+    bounds := greedy_mesh_grid_into_aabb_list(grid)
+    
+    expected_bounds: []ut.Bounds(f64) = {
+        ut.Bounds(f64) {
+            x = 0,
+            y = 0,
+            width = 5,
+            height = 1,
+        },
+        ut.Bounds(f64) {
+            x = 6,
+            y = 0,
+            width = 5,
+            height = 1,
+        },
+        ut.Bounds(f64) {
+            x = 10,
+            y = 1,
+            width = 1,
+            height = 8,
+        },
+        ut.Bounds(f64) {
+            x = 0,
+            y = 3,
+            width = 1,
+            height = 2,
+        },
+        ut.Bounds(f64) {
+            x = 0,
+            y = 6,
+            width = 1,
+            height = 1,
+        },
+        ut.Bounds(f64) {
+            x = 1,
+            y = 8,
+            width = 4,
+            height = 1,
+        },
+        ut.Bounds(f64) {
+            x = 6,
+            y = 8,
+            width = 4,
+            height = 1,
+        },
+    }
+    
+    for expected, i in expected_bounds {
+        testing.expect_value(t, bounds[i], expected);
     }
 }
