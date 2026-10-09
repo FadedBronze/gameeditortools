@@ -21,6 +21,7 @@ Entity :: struct {
     flags: bit_set[enum {Something, Physics, DrawHitbox}] "dropdown",
     velocity: la.Vector2f64,
 
+    physics_surface: PhysicsSurface,
     hitbox: ut.Bounds(f64),
     transform: ut.Transform(f64),
     sprite: FirstGameSheetId "dropdown",
@@ -110,6 +111,8 @@ AppData :: struct {
     viewports: [2]WorldViewport2D,
     linegrid: RectangleLineGrid,
 
+    grid_physics: PhysicsSurface,
+
     grid: Grid(Tile),
 
     // greedy meshed hitboxes
@@ -125,6 +128,13 @@ AppData :: struct {
     // hovered tile essentially
     active_tile: GridPosition,
     state: GameState,
+}
+
+// TODO will have to redo the greedy mesher to support varying properties on different tiles
+// OR apply different properties to different tiles sharing the same body (which I am leaning towards)
+PhysicsSurface :: struct {
+    restitution: f64,
+    friction: f64,
 }
 
 update :: proc(appdata: rawptr, delta_time: f32) {
@@ -143,31 +153,39 @@ update :: proc(appdata: rawptr, delta_time: f32) {
         entity := &appdata.entities[i]
 
         if .Physics in entity.flags {
-            entity.velocity.y += 0.000000981
-            //entity.velocity.y = 0.01 //max(abs(entity.velocity.y), 0.01)*math.sign(entity.velocity.y)
+            grid_mat := ut.create_matrix_from_transform(appdata.linegrid.transform)
 
-            entity.transform.offset += entity.velocity
-
-            hit := false
-            normal := la.Vector2f64{0.0, 0.0}
-            depth: f64 = 0
+            entity.velocity += grid_to_world_position({0.0, 0.00981}, appdata.linegrid) * f64(delta_time)
 
             for bound, i in appdata.computed_simplified_collision_hitboxes {
                 box := ut.apply_matrix_to_bounds(ut.create_matrix_from_transform(entity.transform), entity.hitbox)
-                h, n, d := collide_aabb(box, bound)
+                hit, normal, depth := collide_aabb(box, bound)
 
-                if h {
-                    hit = true
-                    normal = n
-                    depth = d
-                    break;
+                if hit {
+                    entity.transform.offset -= normal * depth
+
+                    vel_mag := la.length(entity.velocity)
+                    vel_normal := la.normalize(entity.velocity)
+                    surface_normal := normal
+                    surface := la.vector2_orthogonal(surface_normal)
+
+                    entity.velocity -= (la.dot(surface_normal, vel_normal) * vel_mag * (appdata.grid_physics.restitution * entity.physics_surface.restitution + 1)) * surface_normal
+                    friction := (la.dot(surface, vel_normal) * vel_mag * (appdata.grid_physics.friction * entity.physics_surface.friction)) * surface
+                    entity.velocity -= friction
                 }
             }
-
-            if hit {
-                entity.transform.offset -= normal * depth
-                entity.velocity = {0, 0}
+            
+            if rl.IsKeyDown(.D) {
+                entity.velocity.x = 0.005
             }
+            if rl.IsKeyDown(.A) {
+                entity.velocity.x = -0.005
+            }
+            if rl.IsKeyDown(.W) {
+                entity.velocity.y = -0.001
+            }
+
+            entity.transform.offset += entity.velocity
         }
     }
 
@@ -194,6 +212,11 @@ place_tile :: proc(appdata: ^AppData, viewport_id: editorui.ViewportIndex, alloc
             create_tile(appdata, tilegrid_position)
         }
     }
+}
+
+grid_to_world_position :: proc(position: la.Vector2f64, linegrid: RectangleLineGrid) -> la.Vector2f64 {
+    mat := ut.create_matrix_from_transform(linegrid.transform)
+    return ut.apply_matrix_to_point(mat, la.Vector2f64{position.x*linegrid.width, position.y*linegrid.height})
 }
 
 grid_bounds_to_worldspace_bounds :: proc(bound: ut.Bounds(f64), linegrid: RectangleLineGrid) -> (worldspace_bounds: ut.Bounds(f64)) {
@@ -386,6 +409,11 @@ init_app :: proc(appdata: ^AppData, allocator: mem.Allocator) {
             transform = ut.TRANSFORM_IDENTITY_F64,
         }
 
+        appdata.grid_physics = PhysicsSurface {
+            friction = 0.6,
+            restitution = 0.3,
+        }
+
         appdata.sprite_sheet = create_first_game_sheet()
 
         appdata.player = Player {
@@ -407,6 +435,10 @@ init_app :: proc(appdata: ^AppData, allocator: mem.Allocator) {
         appdata.computed_simplified_collision_hitboxes = worldspace_bounds;
 
         create_entity(appdata, Entity {
+            physics_surface = PhysicsSurface {
+                friction = 0.6,
+                restitution = 0.3,
+            },
             flags = { .Physics, .DrawHitbox },
             sprite = .PlayerHappy,
             hitbox = ut.centered_bounds_from_lh(f64(1.3), 1.3),
