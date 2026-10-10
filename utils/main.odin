@@ -301,3 +301,21 @@ get_object :: proc(pool: ^ObjectPool($T), id: ObjectId) -> ^T {
 //        }
 //    }
 //}
+
+get_bit :: proc(bits: []u8, bit_num: u32) -> bool {
+    bit := u8(bit_num % 8)
+    byte := bit_num / 8
+    return (bits[byte] >> bit) & 1 == 1 ? true : false
+}
+
+set_bit :: proc(bits: []u8, bit_num: u32, value: bool) {
+    bit := u8(bit_num % 8)
+    byte := bit_num / 8
+    mask := u8(1 << bit)
+
+    if value {
+        bits[byte] |= mask
+    } else {
+        bits[byte] &= ~mask
+    }
+}

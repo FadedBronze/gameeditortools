@@ -1,0 +1,13 @@
+package main
+
+version := "0.1"
+
+config: RandomThinggy = {
+  valuee = +69.696968,
+  some_str = "idek",
+  nested = {
+    nested_bool = true,
+  },
+  // options = Voldemort, Yaoi, JohnCena
+  flags = { Yaoi, JohnCena },
+}

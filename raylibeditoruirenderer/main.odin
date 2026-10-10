@@ -271,24 +271,6 @@ render_dropdown_input :: proc(
     }
 }
 
-get_bit :: proc(bits: []u8, bit_num: u32) -> bool {
-    bit := u8(bit_num % 8)
-    byte := bit_num / 8
-    return (bits[byte] >> bit) & 1 == 1 ? true : false
-}
-
-set_bit :: proc(bits: []u8, bit_num: u32, value: bool) {
-    bit := u8(bit_num % 8)
-    byte := bit_num / 8
-    mask := u8(1 << bit)
-
-    if value {
-        bits[byte] |= mask
-    } else {
-        bits[byte] &= ~mask
-    }
-}
-
 render_multi_dropdown_floating_menu :: proc(
     ui: ^editorui.ActiveInfo,
     render_command: clay.RenderCommand, 
@@ -344,7 +326,7 @@ render_multi_dropdown_floating_menu :: proc(
             break
         }
         
-        value := get_bit(dropdown_input.current, bit_index)
+        value := ut.get_bit(dropdown_input.current, bit_index)
         // based on i which is not the actual 'position' in the list
         offset := f32(count+1) * (gap + font_size)
 
@@ -382,7 +364,7 @@ render_multi_dropdown_floating_menu :: proc(
             rl.DrawRectangleRec(transmute(rl.Rectangle)bounds, auto_cast ut.change_opacity(ut.get_contrasting_color(render_info.back_color), 20))
 
             if rl.IsMouseButtonPressed(.LEFT) {
-                set_bit(dropdown_input.current, bit_index, !value)
+                ut.set_bit(dropdown_input.current, bit_index, !value)
             }
         }
 

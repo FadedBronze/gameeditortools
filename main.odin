@@ -180,7 +180,7 @@ error_handler :: proc "c" (errorData: clay.ErrorData) {
     //fmt.println(errorData)
 }
 
-main :: proc() { 
+vmain :: proc() { 
     rl.InitWindow(1080, 720, "yay")
     rl.SetWindowState({.WINDOW_RESIZABLE})
 

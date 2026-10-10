@@ -7,7 +7,6 @@ import rl "vendor:raylib"
 import la "core:math/linalg"
 import "core:math/rand"
 import "core:fmt"
-import "core:math"
 import "core:mem"
 
 Direction :: enum u8 {
@@ -399,7 +398,7 @@ init_app :: proc(appdata: ^AppData, allocator: mem.Allocator) {
         },
     }
 
-    appdata.editor_settings.open_views += { .State }
+    //appdata.editor_settings = editor_conf
 
     // game initialization
     {
