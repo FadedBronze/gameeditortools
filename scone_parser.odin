@@ -329,16 +329,3 @@ parse_scone_from_file :: proc(path: string, s: ^$T) {
     scone, _ := os.read_entire_file(path, context.allocator)
     scone_to_struct(string(scone), s)
 }
-
-vmain :: proc() {
-    parse_target := EditorSettings {}
-
-    //output_scone(&parse_target, "editor", "main", ".")
-    
-    s: EditorSettings
-    parse_scone_from_file("./editor.meta.odin", &s)
-
-    fmt.println(s)
-}
-
-//TODOs -> add enums, make it work from the editor

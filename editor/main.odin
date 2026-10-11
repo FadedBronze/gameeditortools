@@ -194,6 +194,7 @@ create_panel_recurse_struct_fields :: proc(
             if .Empty not_in tag.flags {
                 create_panel_recurse_struct_fields(s, o, tag, info.base, panel_pool, parent, parent_idx, name)
             }
+
             //if info.name == "EditableSlice" {
             //    unimplemented()
             //} else if info.name == "EditableText" {

@@ -7,7 +7,6 @@ import      "project:editorui"
 
 import "core:strings"
 import "core:mem"
-import "core:fmt"
 
 SliderRenderInfo :: struct {
     font_size: u8,
