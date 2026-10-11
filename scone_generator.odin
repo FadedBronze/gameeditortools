@@ -111,7 +111,6 @@ struct_to_scone_recurse :: proc(
         append(output, smaller_indent)
         append(output, "}")
     case rn.Type_Info_Bit_Set:
-        fmt.println(info)
         underlying_info: rn.Type_Info_Enum
 
         #partial switch v in info.elem.variant {
@@ -224,6 +223,32 @@ struct_to_scone_recurse :: proc(
         append(output, '"')
         append(output, str)
         append(output, '"')
+    case rn.Type_Info_Enum:
+        append(output, ".")
+
+        switch type_info.size {
+            case 1:
+                backing := (cast(^u8)data)^
+                for value in info.values {
+                    if value == auto_cast backing {
+                        append(output, info.names[backing])
+                    }
+                }
+            case 4:
+                backing := (cast(^u32)data)^
+                for value in info.values {
+                    if value == auto_cast backing {
+                        append(output, info.names[backing])
+                    }
+                }
+            case 8:
+                backing := (cast(^u64)data)^
+                for value in info.values {
+                    if value == auto_cast backing {
+                        append(output, info.names[backing])
+                    }
+                }
+        }
     case:
         fmt.println(info)
     }
@@ -232,28 +257,17 @@ struct_to_scone_recurse :: proc(
 Test_RandomThinggy :: struct {
     valuee: f32,
     some_str: string,
+    some_enum: enum {
+        Good,
+        Bad,
+        Idek,
+    },
     nested: struct {
         nested_bool: bool,
     },
     flags: bit_set[enum {
         Voldemort,
-        Yaoi,
+        Fish,
         JohnCena
     }]
 }
-
-//@(test)
-//test_struct_to_scone :: proc(t: ^testing.T) {
-//    parse_target := Test_RandomThinggy {
-//        valuee = 69.696969,
-//        some_str = "idek",
-//        nested = {
-//            nested_bool = true,
-//        },
-//        flags = {
-//            .Yaoi, .JohnCena
-//        }
-//    }
-//
-//    output_scone(&parse_target, "test", "main", ".")
-//}

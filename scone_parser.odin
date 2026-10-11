@@ -15,6 +15,10 @@ find_next :: proc(offset: u32, str: string, search: string) -> u32 {
     j := 0
     start: u32 = 0
     found_match := false
+    
+    if i >= u32(len(str)) {
+        return i
+    }
 
     for true {
         if str[i] == search[j] {
@@ -29,11 +33,11 @@ find_next :: proc(offset: u32, str: string, search: string) -> u32 {
         i += 1
 
         if i >= u32(len(str)) {
-            break;
+            break
         }
         
         if j >= len(search) {
-            break;
+            break
         }
 
         if str[i] != search[j] {
@@ -43,7 +47,7 @@ find_next :: proc(offset: u32, str: string, search: string) -> u32 {
             }
         }
     }
-    
+
     assert(str[start:start+u32(len(search))] == search, message=str[start:start+u32(len(search))])
 
     return start
@@ -83,7 +87,7 @@ skip_to_next_line :: proc(offset: u32, scone: string) -> u32 {
 
 skip_spaces :: proc(offset: u32, scone: string) -> u32 {
     offset := offset
-    for scone[offset] == ' ' {
+    for offset < u32(len(scone)) && scone[offset] == ' ' {
         offset += 1
     }
     return offset
@@ -91,7 +95,7 @@ skip_spaces :: proc(offset: u32, scone: string) -> u32 {
 
 skip_spaces_and_newlines :: proc(offset: u32, scone: string) -> u32 {
     offset := offset
-    for scone[offset] == ' ' || scone[offset] == '\n' {
+    for offset < u32(len(scone)) && (scone[offset] == ' ' || scone[offset] == '\n') {
         offset += 1
     }
     return offset
@@ -105,7 +109,7 @@ scone_to_struct :: proc(scone: string, s: ^$T) {
     scone_to_struct_recurse(scone, 0, named_type.base, cast(rawptr)s, 0)
 }
 
-get_index_of_fieldname :: proc(type_info: ^rn.Type_Info_Struct, fieldname: string) -> i32 {
+get_index_of_fieldname :: proc(type_info: rn.Type_Info_Struct, fieldname: string) -> i32 {
     for i in 0..<type_info.field_count {
         if type_info.names[i] == fieldname {
             return i
@@ -114,7 +118,7 @@ get_index_of_fieldname :: proc(type_info: ^rn.Type_Info_Struct, fieldname: strin
     return -1
 }
 
-get_index_of_tagname :: proc(type_info: ^rn.Type_Info_Enum, tagname: string) -> int {
+get_index_of_tagname :: proc(type_info: rn.Type_Info_Enum, tagname: string) -> int {
     for i in 0..<len(type_info.names) {
         if type_info.names[i] == tagname {
             return i
@@ -143,7 +147,7 @@ scone_to_struct_recurse :: proc(scone: string, offset: u32, type_info: ^rn.Type_
             offset = skip_over_next(offset, scone, "=")
             offset = skip_spaces(offset, scone)
             
-            index := get_index_of_fieldname(&type_info, key)
+            index := get_index_of_fieldname(type_info, key)
             subtype := type_info.types[index]
 
             offset = scone_to_struct_recurse(
@@ -231,8 +235,29 @@ scone_to_struct_recurse :: proc(scone: string, offset: u32, type_info: ^rn.Type_
                 offset = next_comma
             }
 
-            index := get_index_of_tagname(&underlying_info, tag)
+            index := get_index_of_tagname(underlying_info, tag)
             ut.set_bit(slice.from_ptr(cast(^u8)data, int(info.upper)), u32(info.lower)+u32(index), true)
+        }
+    case rn.Type_Info_Enum:
+        offset = skip_over_next(offset, scone, ".")
+        enum_start := offset
+        offset = find_next(offset, scone, ",")
+
+        enum_tag := strings.trim(scone[enum_start:offset], " ")
+        i := get_index_of_tagname(info, enum_tag)
+
+        switch type_info.size {
+            case 1:
+                backing := cast(^u8)data
+                backing^ = auto_cast info.values[i]
+            case 4:
+                backing := cast(^u32)data
+                backing^ = auto_cast info.values[i]
+            case 8:
+                backing := cast(^u64)data
+                backing^ = auto_cast info.values[i]
+            case:
+                unimplemented()
         }
     case:
         offset = skip_over_next(offset, scone, ",")
@@ -247,14 +272,25 @@ parse_scone_from_file :: proc(path: string, s: ^$T) {
     scone_to_struct(string(scone), s)
 }
 
-@(test)
-test_parse_scone :: proc(t: ^testing.T) {
-    s: Test_RandomThinggy
-    parse_scone_from_file("./test.meta.odin", &s)
-}
+tmain :: proc() {
+    parse_target := Test_RandomThinggy {
+        valuee = 69.696969,
+        some_enum = .Idek,
+        some_str = "idek",
+        nested = {
+            nested_bool = true,
+        },
+        flags = {
+            .Voldemort, .JohnCena
+        }
+    }
 
-main :: proc() {
+    output_scone(&parse_target, "test", "main", ".")
+    
     s: Test_RandomThinggy
     parse_scone_from_file("./test.meta.odin", &s)
+
     fmt.println(s)
 }
+
+//TODOs -> add enums, make it work from the editor

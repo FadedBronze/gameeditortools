@@ -5,11 +5,12 @@
 package main
 
 test_config: Test_RandomThinggy = {
-  valuee = -69.1,
+  valuee = +69.696968,
   some_str = "idek",
+  some_enum = .Idek,
   nested = {
-    nested_bool = false,
+    nested_bool = true,
   },
-  // options = Voldemort, Yaoi, JohnCena
-  flags = { .Yaoi, .JohnCena },
+  // options = Voldemort, Fish, JohnCena
+  flags = { .Voldemort, .JohnCena },
 }
