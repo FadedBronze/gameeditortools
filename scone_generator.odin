@@ -255,6 +255,7 @@ struct_to_scone_recurse :: proc(
 }
 
 Test_RandomThinggy :: struct {
+    test_int: i32,
     valuee: f32,
     some_str: string,
     some_enum: enum {

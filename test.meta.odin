@@ -5,6 +5,7 @@
 package main
 
 test_config: Test_RandomThinggy = {
+  test_int = -15,
   valuee = +69.696968,
   some_str = "idek",
   some_enum = .Idek,

@@ -259,6 +259,51 @@ scone_to_struct_recurse :: proc(scone: string, offset: u32, type_info: ^rn.Type_
             case:
                 unimplemented()
         }
+    case rn.Type_Info_Integer:
+        offset = skip_spaces(offset, scone)
+        int_start := offset
+        offset = skip_over_next(offset, scone, ",")
+        int_str := strings.trim(scone[int_start:offset], " ")
+
+        if info.signed {
+            parsed_int, _ := strconv.parse_i64(int_str)
+
+            switch type_info.size {
+            case 1:
+                number := cast(^i8)data
+                number^ = auto_cast parsed_int
+            case 2:
+                number := cast(^i16)data
+                number^ = auto_cast parsed_int
+            case 4:
+                number := cast(^i32)data
+                number^ = auto_cast parsed_int
+            case 8:
+                number := cast(^i64)data
+                number^ = auto_cast parsed_int
+            case:
+                unimplemented()
+            }
+        } else {
+            parsed_int, _ := strconv.parse_u64(int_str)
+
+            switch type_info.size {
+            case 1:
+                number := cast(^u8)data
+                number^ = auto_cast parsed_int
+            case 2:
+                number := cast(^u16)data
+                number^ = auto_cast parsed_int
+            case 4:
+                number := cast(^u32)data
+                number^ = auto_cast parsed_int
+            case 8:
+                number := cast(^u64)data
+                number^ = auto_cast parsed_int
+            case:
+                unimplemented()
+            }
+        }
     case:
         offset = skip_over_next(offset, scone, ",")
     }
@@ -272,8 +317,9 @@ parse_scone_from_file :: proc(path: string, s: ^$T) {
     scone_to_struct(string(scone), s)
 }
 
-tmain :: proc() {
+maint :: proc() {
     parse_target := Test_RandomThinggy {
+        test_int = -15,
         valuee = 69.696969,
         some_enum = .Idek,
         some_str = "idek",
