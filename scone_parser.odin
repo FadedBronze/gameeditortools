@@ -106,6 +106,9 @@ scone_to_struct :: proc(scone: string, s: ^$T) {
     pointer_type := type_info.variant.(rn.Type_Info_Pointer)
     named_type := pointer_type.elem.variant.(rn.Type_Info_Named)
 
+    // TODO make an assert here
+    //assert(named_type.name == )
+
     scone_to_struct_recurse(scone, 0, named_type.base, cast(rawptr)s, 0)
 }
 
@@ -179,6 +182,7 @@ scone_to_struct_recurse :: proc(scone: string, offset: u32, type_info: ^rn.Type_
         offset = find_next(offset, scone, ",")
 
         boo_str := strings.trim(scone[bool_start:offset], " ")
+        fmt.println(boo_str)
 
         bo^ = boo_str == "true" ? true : false
         assert(boo_str == "false" || boo_str == "true")
@@ -215,6 +219,14 @@ scone_to_struct_recurse :: proc(scone: string, offset: u32, type_info: ^rn.Type_
             assert(false, "only supports enum bitsets")
         }
 
+        next_dot := find_next(offset, scone, ".")
+        next_curly := find_next(offset, scone, "}")
+
+        if next_curly < next_dot {
+            offset = find_next(offset, scone, ",")
+            break;
+        }
+
         finished := false
 
         for !finished {
@@ -222,7 +234,7 @@ scone_to_struct_recurse :: proc(scone: string, offset: u32, type_info: ^rn.Type_
             flag_start := offset
 
             next_comma := find_next(offset, scone, ",")
-            next_curly := find_next(offset, scone, "}")
+            next_curly = find_next(offset, scone, "}")
 
             tag: string
 
@@ -236,6 +248,7 @@ scone_to_struct_recurse :: proc(scone: string, offset: u32, type_info: ^rn.Type_
             }
 
             index := get_index_of_tagname(underlying_info, tag)
+            assert(index != -1, tag)
             ut.set_bit(slice.from_ptr(cast(^u8)data, int(info.upper)), u32(info.lower)+u32(index), true)
         }
     case rn.Type_Info_Enum:
@@ -317,24 +330,13 @@ parse_scone_from_file :: proc(path: string, s: ^$T) {
     scone_to_struct(string(scone), s)
 }
 
-maint :: proc() {
-    parse_target := Test_RandomThinggy {
-        test_int = -15,
-        valuee = 69.696969,
-        some_enum = .Idek,
-        some_str = "idek",
-        nested = {
-            nested_bool = true,
-        },
-        flags = {
-            .Voldemort, .JohnCena
-        }
-    }
+vmain :: proc() {
+    parse_target := EditorSettings {}
 
-    output_scone(&parse_target, "test", "main", ".")
+    //output_scone(&parse_target, "editor", "main", ".")
     
-    s: Test_RandomThinggy
-    parse_scone_from_file("./test.meta.odin", &s)
+    s: EditorSettings
+    parse_scone_from_file("./editor.meta.odin", &s)
 
     fmt.println(s)
 }

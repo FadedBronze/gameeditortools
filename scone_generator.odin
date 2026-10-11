@@ -141,21 +141,28 @@ struct_to_scone_recurse :: proc(
         append(output, name)
         append(output, " = { ")
 
+        at_least_one_flag_set := false
+
         for i in 0..<len(underlying_info.names) {
             name := underlying_info.names[i]
             value := underlying_info.values[i] 
             
-            if (ut.get_bit(slice.from_ptr(cast(^u8)data, int(info.upper)), u32(info.lower)+u32(i))) {
+            if (info.upper != 0 && ut.get_bit(slice.from_ptr(cast(^u8)data, int(info.upper)), u32(info.lower)+u32(i))) {
+                at_least_one_flag_set = true
                 append(output, ".")
                 append(output, name)
                 append(output, ", ")
             }
         }
 
-        pop(output)
-        pop(output)
-
-        append(output, " },\n")
+        if at_least_one_flag_set {
+            pop(output)
+            pop(output)
+            append(output, " },\n")
+        } else {
+            pop(output)
+            append(output, "},\n")
+        }
     case rn.Type_Info_Boolean:
         if (cast(^bool)data)^ {
             append(output, "true")
