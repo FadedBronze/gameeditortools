@@ -251,13 +251,16 @@ render_dropdown_input :: proc(
     if mouse_within && within && rl.IsMouseButtonPressed(.LEFT) {
         editor_ui.active_id = editorui.custom_input_id(input_index)
     }
-    
+
     selected_name := dropdown_input.enum_names[dropdown_input.current^]
+
     buf: [64]u8
-    length := copy_from_string(buf[:], selected_name)
+    length := len(selected_name) > 0 ? copy_from_string(buf[:], selected_name) : 0
+
     buf[length] = '\x00'
-    length += 1
     
+    length += 1
+
     if !active {
         rl.DrawTextEx(
             get_font(&font_table, 0, u16(editor_ui.theme.font_size)), 
@@ -436,7 +439,7 @@ render_custom_widget :: proc(
 ) {
     custom_id := transmute(editorui.CustomId)render_command.renderData.custom.customData
 
-    switch custom_id.type {
+    #partial switch custom_id.type {
     case .DropdownTextInput:
         unreachable()
     case .Null:
@@ -487,6 +490,7 @@ render_custom_widget :: proc(
         }
     case .InputIndex:
         input_index: ed.InputIndex = custom_id.value.input_index
+
         input := editor_ui.panel_pool.inputs[input_index]
 
         clay_id := clay.ID("widget", auto_cast input_index)

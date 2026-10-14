@@ -5,7 +5,6 @@ import ut "project:utils"
 import "core:fmt"
 import "core:slice"
 import "core:strconv"
-import "core:testing"
 import "core:os"
 
 output_scone :: proc(

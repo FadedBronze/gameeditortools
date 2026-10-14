@@ -2,6 +2,7 @@ package utils
 
 import "core:mem"
 import la "core:math/linalg"
+import rn "base:runtime"
 
 // colors 
 
@@ -317,5 +318,56 @@ set_bit :: proc(bits: []u8, bit_num: u32, value: bool) {
         bits[byte] |= mask
     } else {
         bits[byte] &= ~mask
+    }
+}
+
+enum_type_info :: proc(T: typeid) -> rn.Type_Info_Enum {
+    base: ^rn.Type_Info = type_info_of(T)
+    enum_info: rn.Type_Info_Enum
+
+    #partial switch v in base.variant {
+        case rn.Type_Info_Enum:
+            enum_info = v
+        case rn.Type_Info_Named:
+            enum_info = v.base.variant.(rn.Type_Info_Enum)
+        case:
+            unimplemented()
+    }
+
+    return enum_info
+}
+
+bitset_enum_type_info :: proc(T: typeid) -> struct {
+    enum_info: rn.Type_Info_Enum,
+    upper: u32,
+    lower: u32,
+} {
+    base: ^rn.Type_Info = type_info_of(T)
+    bitset_info: rn.Type_Info_Bit_Set
+
+    #partial switch v in base.variant {
+        case rn.Type_Info_Bit_Set:
+            bitset_info = v
+        case rn.Type_Info_Named:
+            bitset_info = v.base.variant.(rn.Type_Info_Bit_Set)
+        case:
+            unimplemented()
+    }
+
+    enum_info: rn.Type_Info_Enum
+
+    #partial switch v in bitset_info.elem.variant {
+    case rn.Type_Info_Named:
+        enum_info = v.base.variant.(rn.Type_Info_Enum)
+    case rn.Type_Info_Enum:
+        enum_info = v
+    case:
+        unimplemented()
+    }
+
+    return {
+        enum_info = enum_info,
+        upper = u32(bitset_info.upper),
+        lower = u32(bitset_info.lower),
     }
 }

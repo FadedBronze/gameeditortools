@@ -44,7 +44,6 @@ Dropdown :: struct(T: typeid) {
 
 MultiDropdown :: struct {
     enum_names: []string,
-    enum_values: []rn.Type_Info_Enum_Value,
     upper: u32,
     lower: u32,
     current: []u8,
@@ -398,7 +397,6 @@ create_panel_recurse_struct_fields :: proc(
                     append(inputs, MultiDropdown {
                         current = slice.from_ptr(cast([^]u8)(cast(uintptr)s+o), info.underlying.size),
                         enum_names = base_enum.names,
-                        enum_values = base_enum.values,
                         lower = u32(info.lower),
                         upper = u32(info.upper),
                     })

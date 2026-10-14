@@ -2,104 +2,13 @@ package main
 
 import rn "base:runtime"
 import ut "project:utils"
+import pr "project:parsing"
 
-import "core:testing"
 import "core:strings"
 import "core:os"
 import "core:fmt"
 import "core:strconv"
 import "core:slice"
-
-find_next :: proc(offset: u32, str: string, search: string) -> u32 {
-    i := offset
-    j := 0
-    start: u32 = 0
-    found_match := false
-    
-    if i >= u32(len(str)) {
-        return i
-    }
-
-    for true {
-        if str[i] == search[j] {
-            if !found_match {
-                start = i
-                found_match = true
-            }
-
-            j += 1
-        }
-
-        i += 1
-
-        if i >= u32(len(str)) {
-            break
-        }
-        
-        if j >= len(search) {
-            break
-        }
-
-        if str[i] != search[j] {
-            if found_match {
-                j = 0
-                found_match = false
-            }
-        }
-    }
-
-    assert(str[start:start+u32(len(search))] == search, message=str[start:start+u32(len(search))])
-
-    return start
-}
-
-@(test)
-test_find_next :: proc(t: ^testing.T) {
-    str := "the cat is in the bag"
-    strhard := "aababbaba"
-
-    testing.expect_value(t, find_next(0, str, "bag"), 18)
-    testing.expect_value(t, find_next(0, str, "e c"), 2)
-    testing.expect_value(t, find_next(0, str, "the"), 0)
-    testing.expect_value(t, find_next(1, str, "the"), 14)
-    testing.expect_value(t, find_next(1, strhard, "abb"), 3)
-}
-
-skip_over_next :: proc(offset: u32, scone: string, search: string) -> u32 {
-    return find_next(offset, scone, search) + u32(len(search))
-}
-
-// skips to next nonempty line without comment
-skip_to_next_line :: proc(offset: u32, scone: string) -> u32 {
-    offset := offset
-    offset = skip_over_next(offset, scone, "\n")
-    for offset < u32(len(scone)) {
-        if scone[offset] == '/' && int(offset+1) < len(scone) && scone[offset+1] == '/' {
-            offset += 2
-        } else if scone[offset] == '\n' || scone[offset] == ' ' {
-            offset += 1
-        } else {
-            break;
-        }
-    }
-    return offset
-}
-
-skip_spaces :: proc(offset: u32, scone: string) -> u32 {
-    offset := offset
-    for offset < u32(len(scone)) && scone[offset] == ' ' {
-        offset += 1
-    }
-    return offset
-}
-
-skip_spaces_and_newlines :: proc(offset: u32, scone: string) -> u32 {
-    offset := offset
-    for offset < u32(len(scone)) && (scone[offset] == ' ' || scone[offset] == '\n') {
-        offset += 1
-    }
-    return offset
-}
 
 scone_to_struct :: proc(scone: string, s: ^$T) {
     type_info: ^rn.Type_Info = type_info_of(type_of(s))
@@ -135,20 +44,20 @@ scone_to_struct_recurse :: proc(scone: string, offset: u32, type_info: ^rn.Type_
 
     #partial switch info in type_info.variant {
     case rn.Type_Info_Struct:
-        offset = skip_over_next(offset, scone, "{")
-        offset = skip_spaces(offset, scone)
-        offset = skip_to_next_line(offset, scone)
+        offset = pr.skip_over_next(offset, scone, "{")
+        offset = pr.skip_spaces(offset, scone)
+        offset = pr.skip_to_next_line(offset, scone)
 
         type_info := type_info.variant.(rn.Type_Info_Struct)
 
         for scone[offset] != '}' {
             key_start := offset
-            offset = find_next(offset, scone, "=")
+            offset = pr.find_next(offset, scone, "=")
 
             key := strings.trim(scone[key_start:offset], " ")
 
-            offset = skip_over_next(offset, scone, "=")
-            offset = skip_spaces(offset, scone)
+            offset = pr.skip_over_next(offset, scone, "=")
+            offset = pr.skip_spaces(offset, scone)
             
             index := get_index_of_fieldname(type_info, key)
             subtype := type_info.types[index]
@@ -162,24 +71,24 @@ scone_to_struct_recurse :: proc(scone: string, offset: u32, type_info: ^rn.Type_
             )
         } 
         
-        offset = skip_over_next(offset, scone, "}")
-        offset = skip_spaces(offset, scone)
+        offset = pr.skip_over_next(offset, scone, "}")
+        offset = pr.skip_spaces(offset, scone)
     case rn.Type_Info_String:
         str := cast(^string)data
         
-        offset = skip_over_next(offset, scone, "\"")
+        offset = pr.skip_over_next(offset, scone, "\"")
         str_start := offset
-        offset = find_next(offset, scone, "\"")
+        offset = pr.find_next(offset, scone, "\"")
 
         str^ = scone[str_start:offset]
 
-        offset = skip_over_next(offset, scone, ",")
+        offset = pr.skip_over_next(offset, scone, ",")
     case rn.Type_Info_Boolean:
         bo := cast(^bool)data
         
-        offset = skip_spaces(offset, scone)
+        offset = pr.skip_spaces(offset, scone)
         bool_start := offset
-        offset = find_next(offset, scone, ",")
+        offset = pr.find_next(offset, scone, ",")
 
         boo_str := strings.trim(scone[bool_start:offset], " ")
         fmt.println(boo_str)
@@ -187,11 +96,11 @@ scone_to_struct_recurse :: proc(scone: string, offset: u32, type_info: ^rn.Type_
         bo^ = boo_str == "true" ? true : false
         assert(boo_str == "false" || boo_str == "true")
 
-        offset = skip_over_next(offset, scone, ",")
+        offset = pr.skip_over_next(offset, scone, ",")
     case rn.Type_Info_Float:  
-        offset = skip_spaces(offset, scone)
+        offset = pr.skip_spaces(offset, scone)
         bool_start := offset
-        offset = find_next(offset, scone, ",")
+        offset = pr.find_next(offset, scone, ",")
 
         float_str := strings.trim(scone[bool_start:offset], " ")
 
@@ -204,9 +113,9 @@ scone_to_struct_recurse :: proc(scone: string, offset: u32, type_info: ^rn.Type_
                 f^, _ = strconv.parse_f64(float_str)
         }
 
-        offset = skip_over_next(offset, scone, ",")
+        offset = pr.skip_over_next(offset, scone, ",")
     case rn.Type_Info_Bit_Set:
-        offset = skip_over_next(offset, scone, "{")
+        offset = pr.skip_over_next(offset, scone, "{")
 
         underlying_info: rn.Type_Info_Enum
 
@@ -219,22 +128,22 @@ scone_to_struct_recurse :: proc(scone: string, offset: u32, type_info: ^rn.Type_
             assert(false, "only supports enum bitsets")
         }
 
-        next_dot := find_next(offset, scone, ".")
-        next_curly := find_next(offset, scone, "}")
+        next_dot := pr.find_next(offset, scone, ".")
+        next_curly := pr.find_next(offset, scone, "}")
 
         if next_curly < next_dot {
-            offset = find_next(offset, scone, ",")
+            offset = pr.find_next(offset, scone, ",")
             break;
         }
 
         finished := false
 
         for !finished {
-            offset = skip_over_next(offset, scone, ".")
+            offset = pr.skip_over_next(offset, scone, ".")
             flag_start := offset
 
-            next_comma := find_next(offset, scone, ",")
-            next_curly = find_next(offset, scone, "}")
+            next_comma := pr.find_next(offset, scone, ",")
+            next_curly = pr.find_next(offset, scone, "}")
 
             tag: string
 
@@ -252,9 +161,9 @@ scone_to_struct_recurse :: proc(scone: string, offset: u32, type_info: ^rn.Type_
             ut.set_bit(slice.from_ptr(cast(^u8)data, int(info.upper)), u32(info.lower)+u32(index), true)
         }
     case rn.Type_Info_Enum:
-        offset = skip_over_next(offset, scone, ".")
+        offset = pr.skip_over_next(offset, scone, ".")
         enum_start := offset
-        offset = find_next(offset, scone, ",")
+        offset = pr.find_next(offset, scone, ",")
 
         enum_tag := strings.trim(scone[enum_start:offset], " ")
         i := get_index_of_tagname(info, enum_tag)
@@ -273,9 +182,9 @@ scone_to_struct_recurse :: proc(scone: string, offset: u32, type_info: ^rn.Type_
                 unimplemented()
         }
     case rn.Type_Info_Integer:
-        offset = skip_spaces(offset, scone)
+        offset = pr.skip_spaces(offset, scone)
         int_start := offset
-        offset = skip_over_next(offset, scone, ",")
+        offset = pr.skip_over_next(offset, scone, ",")
         int_str := strings.trim(scone[int_start:offset], " ")
 
         if info.signed {
@@ -318,10 +227,10 @@ scone_to_struct_recurse :: proc(scone: string, offset: u32, type_info: ^rn.Type_
             }
         }
     case:
-        offset = skip_over_next(offset, scone, ",")
+        offset = pr.skip_over_next(offset, scone, ",")
     }
     
-    offset = skip_to_next_line(offset, scone)
+    offset = pr.skip_to_next_line(offset, scone)
     return offset
 }
 

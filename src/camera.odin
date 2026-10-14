@@ -2,7 +2,7 @@ package main
 import "project:editorui"
 import la "core:math/linalg"
 import rl "vendor:raylib"
-import ut "utils"
+import ut "project:utils"
 
 WorldViewport2D :: struct {
     world_to_screenspace_scale: f64 "text", 

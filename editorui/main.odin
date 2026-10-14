@@ -87,9 +87,11 @@ EditorUI :: struct {
     theme: EditorUITheme,
     render_infos: RenderInfos,
 
+    // for meta program
+    ui_groups: map[string]ed.InputIndex,
+
     using active: ActiveInfo,
 
-    panel_pool: ed.PanelPool,
     panels: map[string]ed.GroupIndex,
     layout_fn: LayoutFunction,
     render_fn: RenderFunction,
@@ -97,6 +99,7 @@ EditorUI :: struct {
     render_game: GameRenderCallback,
 
     editor_context: ^clay.Context,
+    panel_pool: ed.PanelPool,
 }
 
 IndexType :: enum u16 {
@@ -105,6 +108,7 @@ IndexType :: enum u16 {
     DropdownFloatingMenu,
     DropdownTextInput,
     Gameview,
+    Meta,
 }
 
 ViewportIndex :: distinct u32
@@ -226,6 +230,7 @@ create_editorui :: proc(theme: EditorUITheme, allocator: mem.Allocator) -> Edito
     return EditorUI {
         panel_pool = ed.create_panel_pool(allocator),
         render_infos = create_render_infos(theme),
+        ui_groups = make(map[string]ed.InputIndex, allocator),
         panels = make(map[string]ed.GroupIndex, allocator),
         active_id = custom_input_id(max(ed.InputIndex)),
         theme = theme,
@@ -310,7 +315,6 @@ iterate_dropdown_entries :: proc(i: int, dropdown_input: ed.MultiDropdown, searc
         }
 
         name = dropdown_input.enum_names[next_i]
-        value := dropdown_input.enum_values[next_i]
 
         trimmed_sub := strings.trim(search_str, " \n\x00")
 
@@ -331,7 +335,20 @@ calculate_dropdown_height :: proc(entries: int, dropdown: DropdownRenderInfo) ->
     return (gap+font_size)*f32(entries+1)-gap+inner_padding
 }
 
-custom_component :: proc(editor_ui: ^EditorUI, widget: ed.InputIndex, frame_allocator: mem.Allocator) {
+// split ID and UI to make callable
+// target
+
+custom_component :: proc {
+    custom_component_meta,
+    custom_component_panel
+}
+
+custom_component_meta :: proc(editor_ui: ^EditorUI, input_component: ed.InputComponent, id: string, frame_allocator: mem.Allocator) {
+
+    append(&editor_ui.panel_pool.inputs, input_component)
+}
+
+custom_component_panel :: proc(editor_ui: ^EditorUI, widget: ed.InputIndex, frame_allocator: mem.Allocator) {
     sizing: clay.Sizing
     
     size := clay.SizingFixed(f32(editor_ui.theme.font_size))

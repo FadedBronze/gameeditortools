@@ -1,6 +1,6 @@
 package main
 
-import ut "utils"
+import ut "project:utils"
 
 import "core:math"
 import "core:mem"

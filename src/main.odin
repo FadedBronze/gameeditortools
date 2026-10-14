@@ -1,10 +1,10 @@
 package main
 
 import rl "vendor:raylib"
-import clay "clay-odin"
-import editorui "editorui"
-import rn "raylibeditoruirenderer"
-import ut "utils"
+import clay "project:clay-odin"
+import editorui "project:editorui"
+import rn "project:raylibeditoruirenderer"
+import ut "project:utils"
 
 import "core:slice"
 import "core:strings"
@@ -19,6 +19,7 @@ create_layout :: proc(
     clay.BeginLayout()
 
     bg := ut.change_opacity(ut.get_contrasting_color(editor_ui.theme.background_color), 20)
+
 
     if clay.UI()({ 
         layout = { 
@@ -40,7 +41,7 @@ create_layout :: proc(
                 }, 
                 backgroundColor = ut.color_to_f32list(bg),
             }) {
-                editorui.render_structure_panel(editor_ui, "Editor Settings", &appdata.editor_settings, "Editor Settings")
+                //editor_settings_widget(editor_ui, &appdata.editor_settings, "Editor Settings", context.temp_allocator)
 
                 if .WorldViewports in appdata.editor_settings.open_views {
                     lables := []string{
@@ -207,6 +208,8 @@ main :: proc() {
         { fn = render, data = &appdata },
         { fn = update, data = &appdata }
     )
+    
+    //editor_settings_widget_init(&editor_ui, &appdata.editor_settings, "Editor Settings")
 
     editorui.run(&editor_ui, &appdata)
 }

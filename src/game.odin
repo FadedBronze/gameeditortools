@@ -1,8 +1,8 @@
 package main
 
 import "project:editorui"
-import ut "utils"
-import clay "clay-odin"
+import ut "project:utils"
+import clay "project:clay-odin"
 import rl "vendor:raylib"
 import la "core:math/linalg"
 import "core:math/rand"

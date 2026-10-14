@@ -1,6 +1,6 @@
 package main
 
-import ut "utils"
+import ut "project:utils"
 import rl "vendor:raylib"
 
 SpriteSheet :: struct(T: typeid) {
