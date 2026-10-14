@@ -1,16 +1,15 @@
 package meta
 
+import "project:editorui"
 import "core:fmt"
-import main "project:src"
 import "core:strings"
 import "core:strconv"
 import rn "base:runtime"
-import ut "project:utils"
 import "core:os"
+import main "project:src"
+import ut "project:utils"
 
 create_widget_program_init_recurse :: proc(type_info: ^rn.Type_Info, output: ^[dynamic]u8, tab_size: int, field_name: string, field_path: string) {
-    context.allocator = context.temp_allocator
-
     buf: [32]u8
     is_single := string(buf[0:tab_size])
     is_double := string(buf[0:tab_size*2])
@@ -22,6 +21,7 @@ create_widget_program_init_recurse :: proc(type_info: ^rn.Type_Info, output: ^[d
 
     function_call := "\n%sappend(&e.panel_pool.inputs, %s)\n"
     fn_sb: strings.Builder
+    strings.builder_init(&fn_sb, context.temp_allocator)
 
     #partial switch info in type_info.variant {
     case rn.Type_Info_Struct:
@@ -30,7 +30,16 @@ create_widget_program_init_recurse :: proc(type_info: ^rn.Type_Info, output: ^[d
             subtype_info := info.types[i]
             path := strings.concatenate({field_path, ".", name})
 
+
             create_widget_program_init_recurse(subtype_info, output, tab_size, name, path)
+        }
+    case rn.Type_Info_Array:
+        subtype := info.elem
+
+        for i in 0..<info.count {
+            sb: strings.Builder
+            strings.builder_init(&sb, context.temp_allocator)
+            create_widget_program_init_recurse(subtype, output, tab_size, "", fmt.sbprintf(&sb, "%s[%d]", field_path, i))
         }
     case rn.Type_Info_Bit_Set:
         enum_info: rn.Type_Info_Enum
@@ -43,6 +52,7 @@ create_widget_program_init_recurse :: proc(type_info: ^rn.Type_Info, output: ^[d
         }
 
         sb: strings.Builder
+        strings.builder_init(&sb, context.temp_allocator)
         struct_decl := "ed.MultiDropdown {{\n%senum_names = info.enum_info.names,\n%supper=info.upper,\n%slower=info.lower,\n%scurrent = slice.from_ptr(cast(^%s)&%s, %s) \n%s}}"
 
         buf: [32]u8
@@ -55,6 +65,7 @@ create_widget_program_init_recurse :: proc(type_info: ^rn.Type_Info, output: ^[d
         formatted_struct_decl := fmt.sbprintf(&sb, struct_decl, is_triple, is_triple, is_triple, is_triple, bitset_base, field_path, bitset_bytes_str, is_double)
 
         i_sb: strings.Builder
+        strings.builder_init(&i_sb, context.temp_allocator)
         type_info_line := "info := ut.bitset_enum_type_info(type_of(%s))"
         formatted_type_info_line := fmt.sbprintf(&i_sb, type_info_line, field_path)
 
@@ -69,14 +80,16 @@ create_widget_program_init_recurse :: proc(type_info: ^rn.Type_Info, output: ^[d
         append(output, "}\n")
     case rn.Type_Info_Enum:
         sb: strings.Builder
+        strings.builder_init(&sb, context.temp_allocator)
         struct_decl := "ed.Dropdown(%s) {{\n%senum_names = info.names,\n%senum_values = info.values,\n%scurrent = cast(^%s)&%s \n%s}}"
 
         buf: [32]u8
-        enum_base := strings.concatenate({"u", strconv.write_int(buf[:], i64(info.base.size*8), 10)})
+        enum_base := strings.concatenate({"u", strconv.write_int(buf[:], i64(info.base.size*8), 10)}, context.temp_allocator)
 
         formatted_struct_decl := fmt.sbprintf(&sb, struct_decl, enum_base, is_triple, is_triple, is_triple, enum_base, field_path, is_double)
 
         i_sb: strings.Builder
+        strings.builder_init(&i_sb, context.temp_allocator)
         type_info_line := "info := ut.enum_type_info(type_of(%s))"
         formatted_type_info_line := fmt.sbprintf(&i_sb, type_info_line, field_path)
 
@@ -91,8 +104,28 @@ create_widget_program_init_recurse :: proc(type_info: ^rn.Type_Info, output: ^[d
         append(output, "}\n")
     case rn.Type_Info_Named:
         create_widget_program_init_recurse(info.base, output, tab_size, field_name, field_path)
+    case rn.Type_Info_Integer:
+        sb: strings.Builder
+        strings.builder_init(&sb, context.temp_allocator)
+
+        struct_decl := "ed.NumberInput(%s) {{\n%scurrent = cast(^%s)&%s,\n%smax=max(%s)\n%s}}"
+
+        buf: [32]u8
+        int_type := strings.concatenate({info.signed ? "i" : "u", strconv.write_int(buf[:], i64(type_info.size*8), 10)}, context.temp_allocator)
+
+        formatted_struct_decl := fmt.sbprintf(&sb, struct_decl, int_type, is_triple, int_type, field_path, is_triple, int_type, is_double)
+
+        i_sb: strings.Builder
+        strings.builder_init(&i_sb, context.temp_allocator)
+
+        append(output, "\n")
+        append(output, is_single)
+        append(output, "{\n")
+        append(output, fmt.sbprintf(&fn_sb, function_call, is_double, formatted_struct_decl))
+        append(output, is_single)
+        append(output, "}\n")
     case:
-        //unimplemented()
+        //
     }
 }
 
@@ -106,6 +139,8 @@ create_widget_program_from_structure_type :: proc(T: typeid, name: string, path:
 
     append(&output, "package main\n\n")
 
+    extra_import := strings.concatenate({pkg_alias, " \"", pkg_import, "\""})
+
     imports: []string = {
         "   \"project:editorui\"",
         "ed \"project:editor\"",
@@ -113,7 +148,22 @@ create_widget_program_from_structure_type :: proc(T: typeid, name: string, path:
         "rn \"base:runtime\"",
         "   \"core:mem\"",
         "   \"core:slice\"",
-        strings.concatenate({pkg_alias, " \"", pkg_import, "\""}),
+        "",
+    }
+
+    extra := false
+
+    for imp in imports {
+        if extra_import == imp {
+            extra = true
+            break
+        }
+    }
+
+    if extra {
+        imports = imports[:len(imports)-1]
+    } else {
+        imports[len(imports)-1] = extra_import
     }
 
     for imp in imports {
@@ -195,6 +245,24 @@ create_widget_program_body_recurse :: proc(type_info: ^rn.Type_Info, output: ^[d
         }
         append(output, indent_spaces)
         append(output, "}\n")
+    case rn.Type_Info_Array:
+        block := "%sif widget_block(\"%s\", e) {{\n\n"
+        bf_sb: strings.Builder
+        block_formatted := fmt.sbprintf(&bf_sb, block, indent_spaces, field_name_formatted)
+        append(output, block_formatted)
+        
+        subtype_info := info.elem
+
+        for i in 0..<info.count {
+            field_sb: strings.Builder
+            strings.builder_init(&field_sb, context.allocator)
+            array_fieldname := fmt.sbprintf(&field_sb, "Element %d", i)
+
+            create_widget_program_body_recurse(subtype_info, output, input_offset, tab_size, indent_level+1, array_fieldname)
+        }
+        
+        append(output, indent_spaces)
+        append(output, "}\n")
     case:
         block := "%sif label_block(\"%s\", e) {{\n%seditorui.custom_component_panel(e, input_offset+%s, frame_allocator)\n%s}}\n\n"
         bf_sb: strings.Builder
@@ -207,6 +275,7 @@ create_widget_program_body_recurse :: proc(type_info: ^rn.Type_Info, output: ^[d
 }
 
 main :: proc() {
+    create_widget_program_from_structure_type(editorui.EditorUITheme, "theme", "./src/theme.widget.odin", "project:editorui", "editorui")
     create_widget_program_from_structure_type(ut.Color, "color", "./src/color.widget.odin", "project:utils", "ut")
     create_widget_program_from_structure_type(main.EditorSettings, "editor_settings", "./src/editor_settings.widget.odin", "project:src", "main")
 }

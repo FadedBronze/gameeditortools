@@ -41,7 +41,7 @@ create_layout :: proc(
                 }, 
                 backgroundColor = ut.color_to_f32list(bg),
             }) {
-                //editor_settings_widget(editor_ui, &appdata.editor_settings, "Editor Settings", context.temp_allocator)
+                editor_settings_widget(editor_ui, &appdata.editor_settings, "Editor Settings", context.temp_allocator)
 
                 if .WorldViewports in appdata.editor_settings.open_views {
                     lables := []string{
@@ -118,8 +118,7 @@ create_layout :: proc(
                 }, 
                 backgroundColor = ut.color_to_f32list(bg),
             }) {
-                label := "Theme"
-                editorui.render_structure_panel(editor_ui, label, &editor_ui.theme, label)
+                theme_widget(editor_ui, &editor_ui.theme, "Theme", context.temp_allocator)
             }
         }
     }
@@ -209,7 +208,8 @@ main :: proc() {
         { fn = update, data = &appdata }
     )
     
-    //editor_settings_widget_init(&editor_ui, &appdata.editor_settings, "Editor Settings")
+    editor_settings_widget_init(&editor_ui, &appdata.editor_settings, "Editor Settings")
+    theme_widget_init(&editor_ui, &editor_ui.theme, "Theme")
 
     editorui.run(&editor_ui, &appdata)
 }
