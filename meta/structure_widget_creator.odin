@@ -9,7 +9,14 @@ import "core:os"
 import main "project:src"
 import ut "project:utils"
 
-create_widget_program_init_recurse :: proc(type_info: ^rn.Type_Info, output: ^[dynamic]u8, tab_size: int, field_name: string, field_path: string) {
+create_widget_program_init_recurse :: proc(
+    type_info: ^rn.Type_Info, 
+    output: ^[dynamic]u8, 
+    tab_size: int, 
+    field_name: string, 
+    field_path: string, // eg this is struct.property.thing.cat
+    configs: map[typeid]MetaUIGenConfig,
+) {
     buf: [32]u8
     is_single := string(buf[0:tab_size])
     is_double := string(buf[0:tab_size*2])
@@ -30,8 +37,7 @@ create_widget_program_init_recurse :: proc(type_info: ^rn.Type_Info, output: ^[d
             subtype_info := info.types[i]
             path := strings.concatenate({field_path, ".", name})
 
-
-            create_widget_program_init_recurse(subtype_info, output, tab_size, name, path)
+            create_widget_program_init_recurse(subtype_info, output, tab_size, name, path, configs)
         }
     case rn.Type_Info_Array:
         subtype := info.elem
@@ -39,7 +45,7 @@ create_widget_program_init_recurse :: proc(type_info: ^rn.Type_Info, output: ^[d
         for i in 0..<info.count {
             sb: strings.Builder
             strings.builder_init(&sb, context.temp_allocator)
-            create_widget_program_init_recurse(subtype, output, tab_size, "", fmt.sbprintf(&sb, "%s[%d]", field_path, i))
+            create_widget_program_init_recurse(subtype, output, tab_size, "", fmt.sbprintf(&sb, "%s[%d]", field_path, i), configs)
         }
     case rn.Type_Info_Bit_Set:
         enum_info: rn.Type_Info_Enum
@@ -103,7 +109,14 @@ create_widget_program_init_recurse :: proc(type_info: ^rn.Type_Info, output: ^[d
         append(output, is_single)
         append(output, "}\n")
     case rn.Type_Info_Named:
-        create_widget_program_init_recurse(info.base, output, tab_size, field_name, field_path)
+        if config, ok := configs[type_info.id]; ok {
+            sb: strings.Builder
+            strings.builder_init(&sb)
+            formatted_subwidget := fmt.sbprintf(&sb, "\n%swidget_init(e, &%s, strings.concatenate({{id, \" %s\"}}))\n", is_single, field_path, field_name)
+            append(output, formatted_subwidget)
+        } else {
+            create_widget_program_init_recurse(info.base, output, tab_size, field_name, field_path, configs)
+        }
     case rn.Type_Info_Integer:
         sb: strings.Builder
         strings.builder_init(&sb, context.temp_allocator)
@@ -129,8 +142,10 @@ create_widget_program_init_recurse :: proc(type_info: ^rn.Type_Info, output: ^[d
     }
 }
 
-create_widget_program_from_structure_type :: proc(T: typeid, name: string, path: string, pkg_import: string, pkg_alias: string) {
-    type_info: ^rn.Type_Info = type_info_of(T)
+create_widget_program_from_structure_type :: proc(type: typeid, configs: map[typeid]MetaUIGenConfig) {
+    config := configs[type] or_else panic("passed type should exist in configs map")
+
+    type_info: ^rn.Type_Info = type_info_of(type)
     named := type_info.variant.(rn.Type_Info_Named)
 
     output: [dynamic]u8
@@ -139,7 +154,7 @@ create_widget_program_from_structure_type :: proc(T: typeid, name: string, path:
 
     append(&output, "package main\n\n")
 
-    extra_import := strings.concatenate({pkg_alias, " \"", pkg_import, "\""})
+    extra_import := strings.concatenate({config.pkg_alias, " \"", config.pkg, "\""})
 
     imports: []string = {
         "   \"project:editorui\"",
@@ -148,6 +163,7 @@ create_widget_program_from_structure_type :: proc(T: typeid, name: string, path:
         "rn \"base:runtime\"",
         "   \"core:mem\"",
         "   \"core:slice\"",
+        "   \"core:strings\"",
         "",
     }
 
@@ -176,7 +192,7 @@ create_widget_program_from_structure_type :: proc(T: typeid, name: string, path:
 
     function_line := "%s_widget_init :: proc(e: ^editorui.EditorUI, b: ^%s, id: string)"
 
-    type_alias := strings.concatenate({pkg_alias, ".", named.name})
+    type_alias := strings.concatenate({config.pkg_alias, ".", named.name})
     
     tab_size := 4
 
@@ -185,7 +201,7 @@ create_widget_program_from_structure_type :: proc(T: typeid, name: string, path:
     for i in 0..<tab_size do buf[i] = ' '
 
     sb: strings.Builder
-    function_sig := fmt.sbprintf(&sb, function_line, name, type_alias)
+    function_sig := fmt.sbprintf(&sb, function_line, config.name, type_alias)
 
     append(&output, function_sig)
     append(&output, " {\n")
@@ -193,14 +209,14 @@ create_widget_program_from_structure_type :: proc(T: typeid, name: string, path:
     append(&output, indent_spaces)
     append(&output, "e.ui_groups[id] = ed.InputIndex(len(e.panel_pool.inputs))\n")
 
-    create_widget_program_init_recurse(named.base, &output, tab_size, "", "b")
+    create_widget_program_init_recurse(named.base, &output, tab_size, "", "b", configs)
     
     append(&output, "}\n\n")
 
     function_body_line :: "%s_widget :: proc(e: ^editorui.EditorUI, b: ^%s, id: string, frame_allocator: mem.Allocator)"
     
     sb_b: strings.Builder
-    function_body_sig := fmt.sbprintf(&sb_b, function_body_line, name, type_alias)    
+    function_body_sig := fmt.sbprintf(&sb_b, function_body_line, config.name, type_alias)    
 
     append(&output, function_body_sig)
     append(&output, " {\n")
@@ -212,14 +228,23 @@ create_widget_program_from_structure_type :: proc(T: typeid, name: string, path:
     name_formatted, _ := strings.replace_all(strings.to_ada_case(named.name), "_", " ")
 
     input_offset := 0
-    create_widget_program_body_recurse(named.base, &output, &input_offset, tab_size, 1, name_formatted)
+    create_widget_program_body_recurse(named.base, &output, &input_offset, tab_size, 1, name_formatted, "b", configs)
     
     append(&output, "}")
 
-    err := os.write_entire_file(path, string(output[:]))
+    err := os.write_entire_file(config.path, string(output[:]))
 }
 
-create_widget_program_body_recurse :: proc(type_info: ^rn.Type_Info, output: ^[dynamic]u8, input_offset: ^int, tab_size: int, indent_level: int, field_name: string) {
+create_widget_program_body_recurse :: proc(
+    type_info: ^rn.Type_Info, 
+    output: ^[dynamic]u8, 
+    input_offset: ^int, 
+    tab_size: int, 
+    indent_level: int, 
+    field_name: string,
+    field_path: string,
+    configs: map[typeid]MetaUIGenConfig,
+) {
     field_name_formatted, _ := strings.replace_all(strings.to_ada_case(field_name), "_", " ")
 
     buf: [32]u8
@@ -231,17 +256,26 @@ create_widget_program_body_recurse :: proc(type_info: ^rn.Type_Info, output: ^[d
 
     #partial switch info in type_info.variant {
     case rn.Type_Info_Named:
-        create_widget_program_body_recurse(info.base, output, input_offset, tab_size, indent_level, info.name)
+        if config, ok := configs[type_info.id]; ok {
+            sb: strings.Builder
+            strings.builder_init(&sb)
+            formatted_subwidget := fmt.sbprintf(&sb, "\n%swidget(e, &%s, strings.concatenate({{id, \" %s\"}}), frame_allocator)\n", indent_spaces, field_path, field_name)
+            append(output, formatted_subwidget)
+        } else {
+            create_widget_program_body_recurse(info.base, output, input_offset, tab_size, indent_level, info.name, field_path, configs)
+        }
     case rn.Type_Info_Struct:
         block := "%sif widget_block(\"%s\", e) {{\n\n"
         bf_sb: strings.Builder
         block_formatted := fmt.sbprintf(&bf_sb, block, indent_spaces, field_name_formatted)
         append(output, block_formatted)
+
         for i in 0..<info.field_count {
             name := info.names[i]
             subtype_info := info.types[i]
+            path := strings.concatenate({field_path, ".", name})
 
-            create_widget_program_body_recurse(subtype_info, output, input_offset, tab_size, indent_level+1, name)
+            create_widget_program_body_recurse(subtype_info, output, input_offset, tab_size, indent_level+1, name, path, configs)
         }
         append(output, indent_spaces)
         append(output, "}\n")
@@ -258,7 +292,9 @@ create_widget_program_body_recurse :: proc(type_info: ^rn.Type_Info, output: ^[d
             strings.builder_init(&field_sb, context.allocator)
             array_fieldname := fmt.sbprintf(&field_sb, "Element %d", i)
 
-            create_widget_program_body_recurse(subtype_info, output, input_offset, tab_size, indent_level+1, array_fieldname)
+            sb: strings.Builder
+            strings.builder_init(&sb, context.temp_allocator)
+            create_widget_program_body_recurse(subtype_info, output, input_offset, tab_size, indent_level+1, array_fieldname, fmt.sbprintf(&sb, "%s[%d]", field_path, i), configs)
         }
         
         append(output, indent_spaces)
@@ -274,8 +310,59 @@ create_widget_program_body_recurse :: proc(type_info: ^rn.Type_Info, output: ^[d
     }
 }
 
+unity_widget :: proc() {
+}
+
+// type that has already been generated into a widget file and is going to be reused
+MetaUIGenConfig :: struct {
+    name: string,
+    pkg: string,
+    pkg_alias: string,
+
+    // if set it will regenerate the file otherwise it is assume that someone has modified it
+    write_over: bool,
+
+    // set just before writing
+    about_to_write: bool,
+    path: string,
+}
+
 main :: proc() {
-    create_widget_program_from_structure_type(editorui.EditorUITheme, "theme", "./src/theme.widget.odin", "project:editorui", "editorui")
-    create_widget_program_from_structure_type(ut.Color, "color", "./src/color.widget.odin", "project:utils", "ut")
-    create_widget_program_from_structure_type(main.EditorSettings, "editor_settings", "./src/editor_settings.widget.odin", "project:src", "main")
+    configs := make(map[typeid]MetaUIGenConfig)
+
+    configs[ut.Color] = MetaUIGenConfig {
+        pkg = "project:utils", 
+        name = "color",
+        pkg_alias = "ut",
+        write_over = false,
+    }
+
+    configs[editorui.EditorUITheme] = MetaUIGenConfig {
+        name = "theme", 
+        pkg = "project:editorui", 
+        pkg_alias = "editorui",
+        write_over = true,
+    }
+
+    configs[main.EditorSettings] = MetaUIGenConfig {
+        name = "editor_settings", 
+        pkg = "project:src", 
+        pkg_alias = "main",
+        write_over = false,
+    }
+
+    out_directory := "./src/"
+    unity_widget_directory := "./src/"
+
+    for type, config in configs {
+        path := strings.concatenate({ out_directory, config.name, ".widget.odin" })
+
+        if config.write_over {
+            config := &configs[type] or_else panic("type should exist in configs")
+            config.about_to_write = true
+            config.path = path
+
+            create_widget_program_from_structure_type(type, configs)
+        }
+    }
 }

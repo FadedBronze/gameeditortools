@@ -8,6 +8,7 @@ import ut "project:utils"
 import rn "base:runtime"
 import    "core:mem"
 import    "core:slice"
+import    "core:strings"
 
 theme_widget_init :: proc(e: ^editorui.EditorUI, b: ^editorui.EditorUITheme, id: string) {
     e.ui_groups[id] = ed.InputIndex(len(e.panel_pool.inputs))
@@ -28,101 +29,11 @@ theme_widget_init :: proc(e: ^editorui.EditorUI, b: ^editorui.EditorUITheme, id:
         })
     }
 
-    {
+    widget_init(e, &b.text_color, strings.concatenate({id, " text_color"}))
 
-        append(&e.panel_pool.inputs, ed.NumberInput(u8) {
-            current = cast(^u8)&b.text_color[0],
-            max=max(u8)
-        })
-    }
+    widget_init(e, &b.background_color, strings.concatenate({id, " background_color"}))
 
-    {
-
-        append(&e.panel_pool.inputs, ed.NumberInput(u8) {
-            current = cast(^u8)&b.text_color[1],
-            max=max(u8)
-        })
-    }
-
-    {
-
-        append(&e.panel_pool.inputs, ed.NumberInput(u8) {
-            current = cast(^u8)&b.text_color[2],
-            max=max(u8)
-        })
-    }
-
-    {
-
-        append(&e.panel_pool.inputs, ed.NumberInput(u8) {
-            current = cast(^u8)&b.text_color[3],
-            max=max(u8)
-        })
-    }
-
-    {
-
-        append(&e.panel_pool.inputs, ed.NumberInput(u8) {
-            current = cast(^u8)&b.background_color[0],
-            max=max(u8)
-        })
-    }
-
-    {
-
-        append(&e.panel_pool.inputs, ed.NumberInput(u8) {
-            current = cast(^u8)&b.background_color[1],
-            max=max(u8)
-        })
-    }
-
-    {
-
-        append(&e.panel_pool.inputs, ed.NumberInput(u8) {
-            current = cast(^u8)&b.background_color[2],
-            max=max(u8)
-        })
-    }
-
-    {
-
-        append(&e.panel_pool.inputs, ed.NumberInput(u8) {
-            current = cast(^u8)&b.background_color[3],
-            max=max(u8)
-        })
-    }
-
-    {
-
-        append(&e.panel_pool.inputs, ed.NumberInput(u8) {
-            current = cast(^u8)&b.highlight_color[0],
-            max=max(u8)
-        })
-    }
-
-    {
-
-        append(&e.panel_pool.inputs, ed.NumberInput(u8) {
-            current = cast(^u8)&b.highlight_color[1],
-            max=max(u8)
-        })
-    }
-
-    {
-
-        append(&e.panel_pool.inputs, ed.NumberInput(u8) {
-            current = cast(^u8)&b.highlight_color[2],
-            max=max(u8)
-        })
-    }
-
-    {
-
-        append(&e.panel_pool.inputs, ed.NumberInput(u8) {
-            current = cast(^u8)&b.highlight_color[3],
-            max=max(u8)
-        })
-    }
+    widget_init(e, &b.highlight_color, strings.concatenate({id, " highlight_color"}))
 }
 
 theme_widget :: proc(e: ^editorui.EditorUI, b: ^editorui.EditorUITheme, id: string, frame_allocator: mem.Allocator) {
@@ -138,62 +49,11 @@ theme_widget :: proc(e: ^editorui.EditorUI, b: ^editorui.EditorUITheme, id: stri
             editorui.custom_component_panel(e, input_offset+1, frame_allocator)
         }
 
-        if widget_block("Color", e) {
 
-            if label_block("Element 0", e) {
-                editorui.custom_component_panel(e, input_offset+2, frame_allocator)
-            }
+        widget(e, &b.text_color, strings.concatenate({id, " text_color"}), frame_allocator)
 
-            if label_block("Element 1", e) {
-                editorui.custom_component_panel(e, input_offset+3, frame_allocator)
-            }
+        widget(e, &b.background_color, strings.concatenate({id, " background_color"}), frame_allocator)
 
-            if label_block("Element 2", e) {
-                editorui.custom_component_panel(e, input_offset+4, frame_allocator)
-            }
-
-            if label_block("Element 3", e) {
-                editorui.custom_component_panel(e, input_offset+5, frame_allocator)
-            }
-
-        }
-        if widget_block("Color", e) {
-
-            if label_block("Element 0", e) {
-                editorui.custom_component_panel(e, input_offset+6, frame_allocator)
-            }
-
-            if label_block("Element 1", e) {
-                editorui.custom_component_panel(e, input_offset+7, frame_allocator)
-            }
-
-            if label_block("Element 2", e) {
-                editorui.custom_component_panel(e, input_offset+8, frame_allocator)
-            }
-
-            if label_block("Element 3", e) {
-                editorui.custom_component_panel(e, input_offset+9, frame_allocator)
-            }
-
-        }
-        if widget_block("Color", e) {
-
-            if label_block("Element 0", e) {
-                editorui.custom_component_panel(e, input_offset+10, frame_allocator)
-            }
-
-            if label_block("Element 1", e) {
-                editorui.custom_component_panel(e, input_offset+11, frame_allocator)
-            }
-
-            if label_block("Element 2", e) {
-                editorui.custom_component_panel(e, input_offset+12, frame_allocator)
-            }
-
-            if label_block("Element 3", e) {
-                editorui.custom_component_panel(e, input_offset+13, frame_allocator)
-            }
-
-        }
+        widget(e, &b.highlight_color, strings.concatenate({id, " highlight_color"}), frame_allocator)
     }
 }

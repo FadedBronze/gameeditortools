@@ -1,3 +1,5 @@
+
+# Building The Program
 run with
 
 ```
@@ -11,3 +13,13 @@ you can run the new meta ui generation script with
 ```
 odin run meta -collection:project=.
 ```
+
+# Project Info
+This is a game making toolkit to help me make a game eventually (I haven't decided what I want to do)
+Right now you can try some of the editor if you use WASD you can move around the cube (drag the grid and scroll to zoom out and move to the bottom)
+You can toggle some of the menus via dropdown flags (I implemented the dropdowns and all UI from scratch - it reads the type information like a "game engine style" inpector eg unity)
+At the time of writing this I am working on reworking the way type information is read (from a runtime model to compile time code generation) in order to see what I like better
+
+# Releases
+You can find windows releases in the side (although its being developed on linux - im pretty sure linux binaries aren't transferrable so im not adding those) 
+although I think should be easier to just build if you have the odin compiler installed

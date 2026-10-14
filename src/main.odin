@@ -41,7 +41,7 @@ create_layout :: proc(
                 }, 
                 backgroundColor = ut.color_to_f32list(bg),
             }) {
-                editor_settings_widget(editor_ui, &appdata.editor_settings, "Editor Settings", context.temp_allocator)
+                widget(editor_ui, &appdata.editor_settings, "Editor Settings", context.temp_allocator)
 
                 if .WorldViewports in appdata.editor_settings.open_views {
                     lables := []string{
@@ -118,7 +118,7 @@ create_layout :: proc(
                 }, 
                 backgroundColor = ut.color_to_f32list(bg),
             }) {
-                theme_widget(editor_ui, &editor_ui.theme, "Theme", context.temp_allocator)
+                widget(editor_ui, &editor_ui.theme, "Theme", context.temp_allocator)
             }
         }
     }
