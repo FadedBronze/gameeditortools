@@ -57,7 +57,7 @@ create_layout :: proc(
 
                 if .TileEditor in appdata.editor_settings.open_views {
                     label := "Grid"
-                    editorui.render_structure_panel(editor_ui, label, &appdata.linegrid, label)
+                    widget(editor_ui, &appdata.linegrid, label, context.temp_allocator)
                 }
                 
                 if .State in appdata.editor_settings.open_views {
@@ -208,8 +208,9 @@ main :: proc() {
         { fn = update, data = &appdata }
     )
     
-    editor_settings_widget_init(&editor_ui, &appdata.editor_settings, "Editor Settings")
-    theme_widget_init(&editor_ui, &editor_ui.theme, "Theme")
+    widget_init(&editor_ui, &appdata.editor_settings, "Editor Settings")
+    widget_init(&editor_ui, &editor_ui.theme, "Theme")
+    widget_init(&editor_ui, &appdata.linegrid, "Grid")
 
     editorui.run(&editor_ui, &appdata)
 }

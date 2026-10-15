@@ -137,6 +137,26 @@ create_widget_program_init_recurse :: proc(
         append(output, fmt.sbprintf(&fn_sb, function_call, is_double, formatted_struct_decl))
         append(output, is_single)
         append(output, "}\n")
+    case rn.Type_Info_Float:
+        sb: strings.Builder
+        strings.builder_init(&sb, context.temp_allocator)
+
+        struct_decl := "ed.NumberInput(%s) {{\n%scurrent = cast(^%s)&%s,\n%smax=max(%s), placeholder=\"idek\"\n%s}}"
+
+        buf: [32]u8
+        float_type := strings.concatenate({"f", strconv.write_int(buf[:], i64(type_info.size*8), 10)}, context.temp_allocator)
+
+        formatted_struct_decl := fmt.sbprintf(&sb, struct_decl, float_type, is_triple, float_type, field_path, is_triple, float_type, is_double)
+
+        i_sb: strings.Builder
+        strings.builder_init(&i_sb, context.temp_allocator)
+
+        append(output, "\n")
+        append(output, is_single)
+        append(output, "{\n")
+        append(output, fmt.sbprintf(&fn_sb, function_call, is_double, formatted_struct_decl))
+        append(output, is_single)
+        append(output, "}\n")
     case:
         //
     }
@@ -225,14 +245,15 @@ create_widget_program_from_structure_type :: proc(type: typeid, configs: map[typ
 
     append(&output, "")
     
-    name_formatted, _ := strings.replace_all(strings.to_ada_case(named.name), "_", " ")
+    name_formatted, _ := strings.replace_all(strings.to_ada_case(config.name), "_", " ")
 
     input_offset := 0
     create_widget_program_body_recurse(named.base, &output, &input_offset, tab_size, 1, name_formatted, "b", configs)
     
     append(&output, "}")
 
-    err := os.write_entire_file(config.path, string(output[:]))
+    file, _ := os.create(config.path)
+    os.write(file, output[:])
 }
 
 create_widget_program_body_recurse :: proc(
@@ -341,9 +362,16 @@ main :: proc() {
         name = "theme", 
         pkg = "project:editorui", 
         pkg_alias = "editorui",
+        write_over = false,
+    } 
+
+    configs[main.RectangleLineGrid] = MetaUIGenConfig {
+        name = "grid", 
+        pkg = "project:src", 
+        pkg_alias = "main",
         write_over = true,
     }
-
+    
     configs[main.EditorSettings] = MetaUIGenConfig {
         name = "editor_settings", 
         pkg = "project:src", 

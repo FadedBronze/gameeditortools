@@ -734,6 +734,7 @@ render_number_input :: proc(
         #partial switch v in type_info.variant {
         case runtime.Type_Info_Float:
             buf_len := len(strconv.write_float(buf[:], cast(f64)num, 'f', 2, 64))
+            fmt.println(buf)
             buf[buf_len] = '\x00'
             buf_len += 1
             return strings.unsafe_string_to_cstring(string(buf[0:buf_len]))

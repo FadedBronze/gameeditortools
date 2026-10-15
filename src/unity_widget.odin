@@ -6,10 +6,12 @@ widget :: proc {
     editor_settings_widget,
     theme_widget,
     color_widget,
+    grid_widget,
 }
 
 widget_init :: proc {
     editor_settings_widget_init,
     theme_widget_init,
     color_widget_init,
+    grid_widget_init,
 }

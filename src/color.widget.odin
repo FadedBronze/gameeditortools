@@ -50,19 +50,19 @@ color_widget :: proc(e: ^editorui.EditorUI, b: ^ut.Color, id: string, frame_allo
 
     if widget_block("Color", e) {
 
-        if label_block("Element 0", e) {
+        if label_block("Red", e) {
             editorui.custom_component_panel(e, input_offset+0, frame_allocator)
         }
 
-        if label_block("Element 1", e) {
+        if label_block("Green", e) {
             editorui.custom_component_panel(e, input_offset+1, frame_allocator)
         }
 
-        if label_block("Element 2", e) {
+        if label_block("Blue", e) {
             editorui.custom_component_panel(e, input_offset+2, frame_allocator)
         }
 
-        if label_block("Element 3", e) {
+        if label_block("Alpha", e) {
             editorui.custom_component_panel(e, input_offset+3, frame_allocator)
         }
 

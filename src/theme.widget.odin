@@ -17,7 +17,7 @@ theme_widget_init :: proc(e: ^editorui.EditorUI, b: ^editorui.EditorUITheme, id:
 
         append(&e.panel_pool.inputs, ed.NumberInput(u8) {
             current = cast(^u8)&b.letter_spacing,
-            max=max(u8)
+            max=18
         })
     }
 
@@ -25,7 +25,8 @@ theme_widget_init :: proc(e: ^editorui.EditorUI, b: ^editorui.EditorUITheme, id:
 
         append(&e.panel_pool.inputs, ed.NumberInput(u8) {
             current = cast(^u8)&b.font_size,
-            max=max(u8)
+            min=8,
+            max=18
         })
     }
 
@@ -39,7 +40,7 @@ theme_widget_init :: proc(e: ^editorui.EditorUI, b: ^editorui.EditorUITheme, id:
 theme_widget :: proc(e: ^editorui.EditorUI, b: ^editorui.EditorUITheme, id: string, frame_allocator: mem.Allocator) {
     input_offset := e.ui_groups[id]
 
-    if widget_block("Editor Uitheme", e) {
+    if widget_block("Theme", e) {
 
         if label_block("Letter Spacing", e) {
             editorui.custom_component_panel(e, input_offset+0, frame_allocator)

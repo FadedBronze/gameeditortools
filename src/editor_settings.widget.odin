@@ -84,7 +84,7 @@ editor_settings_widget :: proc(e: ^editorui.EditorUI, b: ^main.EditorSettings, i
                     editorui.custom_component_panel(e, input_offset+1, frame_allocator)
                 }
 
-                if label_block("First Game Sheet Id", e) {
+                if label_block("Sprite", e) {
                     editorui.custom_component_panel(e, input_offset+2, frame_allocator)
                 }
 
