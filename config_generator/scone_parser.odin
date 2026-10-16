@@ -1,4 +1,4 @@
-package main
+package configen
 
 import rn "base:runtime"
 import ut "project:utils"
@@ -229,7 +229,7 @@ scone_to_struct_recurse :: proc(scone: string, offset: u32, type_info: ^rn.Type_
     case:
         offset = pr.skip_over_next(offset, scone, ",")
     }
-    
+
     offset = pr.skip_to_next_line(offset, scone)
     return offset
 }
@@ -237,4 +237,37 @@ scone_to_struct_recurse :: proc(scone: string, offset: u32, type_info: ^rn.Type_
 parse_scone_from_file :: proc(path: string, s: ^$T) {
     scone, _ := os.read_entire_file(path, context.allocator)
     scone_to_struct(string(scone), s)
+}
+
+input_main :: proc() {
+    // This was working I will fix it at some point look at the other stuff for now
+
+    parse_target := `// if you want to see this generator create something else
+// modify the structure under ./config_generator/scone_generator.odin
+
+// this file is not read by the odin compiler
+// its a config file that uses the same syntax and
+// sits in same directory as the type for lsp completion
+
+package mega
+
+test_config: Test_RandomThinggy = {
+    test_int = 0,
+                                                                                 valuee = +0.000000,                                                                           some_str = "",                                                                                some_enum = .Good,
+    nested = {                                                                                        nested_bool = false,
+    },                                                                                            // options = Voldemort, Fish, JohnCena
+    flags = {},
+}
+    `
+
+    fmt.println("try running with flag -mkconfig then pasting the result here")
+    fmt.println("make sure the desired type is used in scone_generator.odin eg. Test_RandomThinggy")
+
+    // change this to configen.Test_AnotherRandomThinggy 
+    // if you generated that one
+    s: Test_RandomThinggy
+
+    scone_to_struct(parse_target, &s)
+
+    fmt.println(s)
 }

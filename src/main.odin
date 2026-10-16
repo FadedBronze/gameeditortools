@@ -180,7 +180,7 @@ error_handler :: proc "c" (errorData: clay.ErrorData) {
     //fmt.println(errorData)
 }
 
-main :: proc() { 
+prog_main :: proc() { 
     rl.InitWindow(1080, 720, "yay")
     rl.SetWindowState({.WINDOW_RESIZABLE})
 
@@ -207,7 +207,9 @@ main :: proc() {
         { fn = render, data = &appdata },
         { fn = update, data = &appdata }
     )
-    
+
+    appdata.editor_settings.open_views += {.TileEditor}
+
     widget_init(&editor_ui, &appdata.editor_settings, "Editor Settings")
     widget_init(&editor_ui, &editor_ui.theme, "Theme")
     widget_init(&editor_ui, &appdata.linegrid, "Grid")

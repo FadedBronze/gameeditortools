@@ -141,12 +141,12 @@ create_widget_program_init_recurse :: proc(
         sb: strings.Builder
         strings.builder_init(&sb, context.temp_allocator)
 
-        struct_decl := "ed.NumberInput(%s) {{\n%scurrent = cast(^%s)&%s,\n%smax=max(%s), placeholder=\"idek\"\n%s}}"
+        struct_decl := "ed.NumberInput(%s) {{\n%scurrent = cast(^%s)&%s,\n%smax=100.0\n%s}}"
 
         buf: [32]u8
         float_type := strings.concatenate({"f", strconv.write_int(buf[:], i64(type_info.size*8), 10)}, context.temp_allocator)
 
-        formatted_struct_decl := fmt.sbprintf(&sb, struct_decl, float_type, is_triple, float_type, field_path, is_triple, float_type, is_double)
+        formatted_struct_decl := fmt.sbprintf(&sb, struct_decl, float_type, is_triple, float_type, field_path, is_triple, is_double)
 
         i_sb: strings.Builder
         strings.builder_init(&i_sb, context.temp_allocator)
@@ -355,14 +355,14 @@ main :: proc() {
         pkg = "project:utils", 
         name = "color",
         pkg_alias = "ut",
-        write_over = false,
+        write_over = true,
     }
 
     configs[editorui.EditorUITheme] = MetaUIGenConfig {
         name = "theme", 
         pkg = "project:editorui", 
-        pkg_alias = "editorui",
-        write_over = false,
+        pkg_alias = "edui",
+        write_over = true,
     } 
 
     configs[main.RectangleLineGrid] = MetaUIGenConfig {
@@ -376,7 +376,7 @@ main :: proc() {
         name = "editor_settings", 
         pkg = "project:src", 
         pkg_alias = "main",
-        write_over = false,
+        write_over = true,
     }
 
     out_directory := "./src/"

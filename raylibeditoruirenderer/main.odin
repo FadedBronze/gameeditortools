@@ -733,8 +733,7 @@ render_number_input :: proc(
 
         #partial switch v in type_info.variant {
         case runtime.Type_Info_Float:
-            buf_len := len(strconv.write_float(buf[:], cast(f64)num, 'f', 2, 64))
-            fmt.println(buf)
+            buf_len := len(strconv.write_float(buf[:], cast(f64)num, 'f', 2, type_info.size*8))
             buf[buf_len] = '\x00'
             buf_len += 1
             return strings.unsafe_string_to_cstring(string(buf[0:buf_len]))
@@ -814,7 +813,7 @@ render_number_input :: proc(
             }, auto_cast render_info.handle_color)
              
             min_text_buf: [16]u8
-            min_text_cstring := fmt_number(min_text_buf[:], number_input.min)
+            min_text_cstring: cstring = fmt_number(min_text_buf[:], number_input.min)
             
             scaled_size: f32 = auto_cast scale_down_font_size(auto_cast editor_ui.theme.font_size)
 
@@ -834,7 +833,7 @@ render_number_input :: proc(
             )
 
             max_text_buf: [16]u8
-            max_text_cstring := fmt_number(max_text_buf[:], number_input.max)
+            max_text_cstring: cstring = fmt_number(max_text_buf[:], number_input.max)
             
             max_text_width: i32 = auto_cast rl.MeasureTextEx(font, max_text_cstring, f32(scaled_size), f32(editor_ui.theme.letter_spacing)).x
 

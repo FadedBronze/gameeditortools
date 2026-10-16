@@ -1,17 +1,18 @@
+# IMPORTANT
+
+if you run the release you won't be able to run a lot of the dev tools (which I am working on and you need to review)
+this is intentional because this is a game development toolkit not a standalone game yet (it may become one at some point during terra)
+but don't worry its really easy to build!
 
 # Building The Program
-run with
+
+download this version of the odin compiler linked here:
+[odin version dev-2026-06:285f6d87b](https://github.com/odin-lang/Odin/releases#release-dev-2026-06)
+
+if you don't have msvc (microsoft c++ compiler I think) you will need to install that aswell but its just a few clicks (you'll get an error along the lines Windows SDK not installed)
 
 ```
-odin run src -collection:project=.
-```
-odin version dev-2026-06:285f6d87b
-
-you can run the new meta ui generation script with
-(delete the file or files in src/*.widget.odin and rerun)
-
-```
-odin run meta -collection:project=.
+odin run . -collection:project=.
 ```
 
 # Project Info

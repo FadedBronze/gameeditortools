@@ -1,4 +1,4 @@
-package main
+package configen
 
 import rn "base:runtime"
 import ut "project:utils"
@@ -30,7 +30,7 @@ struct_to_scone :: proc(
 ) -> string {
     output := make([dynamic]u8)
 
-    append(&output, "// this file is not read by the odin compiler\n// its a config file that uses the same syntax and\n// sits in same directory as the type for lsp completion\n\n")
+    append(&output, "// if you want to see this generator create something else \n// modify the structure under ./config_generator/scone_generator.odin \n\n// this file is not read by the odin compiler\n// its a config file that uses the same syntax and\n// sits in same directory as the type for lsp completion\n\n")
 
     append(&output, "package ")
     append(&output, package_name)
@@ -277,4 +277,33 @@ Test_RandomThinggy :: struct {
         Fish,
         JohnCena
     }]
+}
+
+Test_AnotherRandomThinggy :: struct {
+    nested: struct {
+        some_enum: enum {
+            Very,
+            Epic,
+            System,
+        },
+    },
+    flags: bit_set[enum {
+        This,
+        Is,
+        Confusing,
+        IGetIt,
+    }]
+}
+
+output_main :: proc() {
+    data: Test_RandomThinggy
+
+    // eg here you can replace data: Test_RandomThinggy with 
+    // data: Test_AnotherRandomThinggy = { 
+    //     nested = { some_enum = .Very }, flags = { .Confusing } 
+    // }
+
+    // this is meant to allow me to generate configs eg. like JSON for my games
+
+    fmt.println(struct_to_scone(&data, "test", "mega", 4))
 }
