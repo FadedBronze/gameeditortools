@@ -12,12 +12,14 @@ output_scone :: proc(
     name_prefix: string, 
     package_name: string,
     package_directory: string,
+    import_pkg_alias: string,
+    import_pkg: string,
     tab_size: u8 = 2, 
 ) {
     buf: [128]u8
-    file_path := ut.concatenate(buf[:], package_directory, "/", name_prefix, ".meta.odin")
+    file_path := ut.concatenate(buf[:], package_directory, "/", name_prefix, ".config.odin")
     
-    scone := struct_to_scone(s, name_prefix, package_name, tab_size)
+    scone := struct_to_scone(s, name_prefix, package_name, import_pkg, import_pkg_alias, tab_size)
     _ = os.write_entire_file_from_string(file_path, scone)
 }
 
@@ -26,6 +28,8 @@ struct_to_scone :: proc(
     s: ^$T, 
     name_prefix: string, 
     package_name: string,
+    pkg_import: string,
+    pkg_alias: string,
     tab_size: u8 = 2, 
 ) -> string {
     output := make([dynamic]u8)
@@ -36,10 +40,16 @@ struct_to_scone :: proc(
     append(&output, package_name)
     append(&output, "\n\n")
 
+    append(&output, "import ")
+    append(&output, pkg_alias)
+    append(&output, " \"")
+    append(&output, pkg_import)
+    append(&output, "\"\n\n")
+
     type_info_ptr: rn.Type_Info_Pointer = type_info_of(type_of(s)).variant.(rn.Type_Info_Pointer)
     named := type_info_ptr.elem.variant.(rn.Type_Info_Named)
     name := named.name
-    struct_to_scone_recurse(type_info_ptr.elem, &output, cast(rawptr)s, 1, tab_size, name_prefix)
+    struct_to_scone_recurse(type_info_ptr.elem, &output, cast(rawptr)s, 1, tab_size, name_prefix, pkg_alias)
 
     return string(output[:]);
 }
@@ -51,6 +61,7 @@ struct_to_scone_recurse :: proc(
     indent_level: u8,
     tab_size: u8,
     name: string,
+    pkg_alias: string = "",
 ) {
     indent_spaces_buf: [32]u8;
     indent_spaces: string = ""
@@ -70,6 +81,10 @@ struct_to_scone_recurse :: proc(
         if indent_level == 1 {
             append(output, name)
             append(output, "_config: ")
+            if pkg_alias != "" {
+                append(output, pkg_alias)
+                append(output, ".")
+            }
             append(output, info.name)
             append(output, " = ")
 
@@ -305,5 +320,5 @@ output_main :: proc() {
 
     // this is meant to allow me to generate configs eg. like JSON for my games
 
-    fmt.println(struct_to_scone(&data, "test", "mega", 4))
+    fmt.println(struct_to_scone(&data, "test", "mega", "", "", 4))
 }

@@ -8,6 +8,7 @@ import la "core:math/linalg"
 import "core:math/rand"
 import "core:fmt"
 import "core:mem"
+import configen "project:config_generator"
 
 Direction :: enum u8 {
     Up,
@@ -69,11 +70,6 @@ EditorSettings :: struct {
     } "dropdown",
 }
 
-GameState :: enum {
-    Planning,
-    PlayingAttack,
-}
-
 Signals :: enum {
     Wait,
     GoUp,
@@ -126,7 +122,6 @@ AppData :: struct {
 
     // hovered tile essentially
     active_tile: GridPosition,
-    state: GameState,
 }
 
 // TODO will have to redo the greedy mesher to support varying properties on different tiles
@@ -447,4 +442,10 @@ init_app :: proc(appdata: ^AppData, allocator: mem.Allocator) {
             }
         })
     }
+    
+    configen.parse_scone_from_file(config_file_paths[.EditorSettings], &appdata.editor_settings)
+}
+
+exit_app :: proc(appdata: ^AppData) {
+    configen.output_scone(&appdata.editor_settings, "editor_settings", "configs", "./configs/", "main", "project:src", 4)
 }

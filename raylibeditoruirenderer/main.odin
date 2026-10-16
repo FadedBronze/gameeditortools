@@ -444,6 +444,8 @@ render_custom_widget :: proc(
         unreachable()
     case .Null:
         unreachable()
+    case .Button:
+        //render_command.boundingBox
     case .Gameview:
         if clay.UI()({ 
             layout = {
@@ -918,7 +920,7 @@ render_editor : editorui.RenderFunction = proc(
     //TODO
     init_font_table(&font_table, context.allocator)
 
-    for !rl.WindowShouldClose() {
+    for !rl.WindowShouldClose() && editor_ui.control_panel.state == .Running {
         dt := rl.GetFrameTime()
 
         mouse_position := rl.GetMousePosition()

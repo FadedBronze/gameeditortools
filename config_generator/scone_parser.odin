@@ -50,7 +50,7 @@ scone_to_struct_recurse :: proc(scone: string, offset: u32, type_info: ^rn.Type_
 
         type_info := type_info.variant.(rn.Type_Info_Struct)
 
-        for scone[offset] != '}' {
+        for offset < u32(len(scone)) && scone[offset] != '}' {
             key_start := offset
             offset = pr.find_next(offset, scone, "=")
 
@@ -235,7 +235,10 @@ scone_to_struct_recurse :: proc(scone: string, offset: u32, type_info: ^rn.Type_
 }
 
 parse_scone_from_file :: proc(path: string, s: ^$T) {
-    scone, _ := os.read_entire_file(path, context.allocator)
+    scone, err := os.read_entire_file(path, context.allocator)
+    if err != nil {
+        panic(fmt.aprintf("parse config failed with: %v", err, context.allocator))
+    }
     scone_to_struct(string(scone), s)
 }
 

@@ -245,14 +245,21 @@ create_widget_program_from_structure_type :: proc(type: typeid, configs: map[typ
 
     append(&output, "")
     
-    name_formatted, _ := strings.replace_all(strings.to_ada_case(config.name), "_", " ")
+    name_formatted, ok := strings.replace_all(strings.to_ada_case(config.name), "_", " ")
+    if !ok {
+        panic("string replace failed")
+    }
 
     input_offset := 0
     create_widget_program_body_recurse(named.base, &output, &input_offset, tab_size, 1, name_formatted, "b", configs)
     
     append(&output, "}")
 
-    file, _ := os.create(config.path)
+    file, err := os.create(config.path)
+    if err != nil {
+        fmt.println(err)
+        panic("failed")
+    }
     os.write(file, output[:])
 }
 
@@ -350,7 +357,7 @@ MetaUIGenConfig :: struct {
 
 main :: proc() {
     configs := make(map[typeid]MetaUIGenConfig)
-
+    
     configs[ut.Color] = MetaUIGenConfig {
         pkg = "project:utils", 
         name = "color",

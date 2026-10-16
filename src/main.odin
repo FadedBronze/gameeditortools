@@ -61,20 +61,6 @@ create_layout :: proc(
                 }
                 
                 if .State in appdata.editor_settings.open_views {
-                    label := "State"
-                    State :: struct {
-                        state: ^GameState "dropdown",
-                        sim_time: ^f32 "text",
-                        delta_time: ^f32 "text",
-                        player: ^Player "group",
-                    }
-                    state: State = {
-                        state = &appdata.state,
-                        sim_time = &appdata.sim_time,
-                        delta_time = &appdata.delta_time,
-                        player = &appdata.player,
-                    }
-                    editorui.render_structure_panel(editor_ui, label, &state, label)
                 }
 
                 if .Entities in appdata.editor_settings.open_views {
@@ -114,10 +100,26 @@ create_layout :: proc(
 
             if clay.UI()({ 
                 layout = { 
-                    sizing = { width = clay.SizingPercent(0.25), height = clay.SizingGrow({}) } 
+                    sizing = { width = clay.SizingPercent(0.25), height = clay.SizingGrow({}) },
+                    layoutDirection = .TopToBottom
                 }, 
                 backgroundColor = ut.color_to_f32list(bg),
             }) {
+                //if clay.UI()({ 
+                //    layout = { 
+                //        sizing = { width = clay.SizingPercent(1), height = clay.SizingFixed(20) },
+                //        padding = clay.PaddingAll(5),
+                //        childAlignment = clay.ChildAlignment {
+                //            x = .Right,
+                //            y = .Top
+                //        }
+                //    }, 
+                //    backgroundColor = ut.color_to_f32list(ut.change_opacity(ut.WHITE, 50)),
+                //}) {
+                //    editorui.button()
+                //}
+
+                editorui.render_structure_panel(editor_ui, "Control Panel", &editor_ui.control_panel, "Control Panel")
                 widget(editor_ui, &editor_ui.theme, "Theme", context.temp_allocator)
             }
         }
@@ -180,7 +182,15 @@ error_handler :: proc "c" (errorData: clay.ErrorData) {
     //fmt.println(errorData)
 }
 
-prog_main :: proc() { 
+ConfigFile :: enum {
+    EditorSettings,
+}
+
+config_file_paths: [ConfigFile]string = {
+    .EditorSettings = "./configs/editor_settings.config.odin",
+}
+
+main :: proc() { 
     rl.InitWindow(1080, 720, "yay")
     rl.SetWindowState({.WINDOW_RESIZABLE})
 
@@ -207,12 +217,12 @@ prog_main :: proc() {
         { fn = render, data = &appdata },
         { fn = update, data = &appdata }
     )
-
-    appdata.editor_settings.open_views += {.TileEditor}
-
+    
     widget_init(&editor_ui, &appdata.editor_settings, "Editor Settings")
     widget_init(&editor_ui, &editor_ui.theme, "Theme")
     widget_init(&editor_ui, &appdata.linegrid, "Grid")
 
     editorui.run(&editor_ui, &appdata)
+
+    exit_app(&appdata)
 }

@@ -1,17 +1,18 @@
-package mega
+package build
 
 import "core:os"
 import "core:flags"
 import "core:fmt"
-import main "project:src"
-import meta "project:meta"
-import configen "project:config_generator"
+//import meta "project:meta"
+//import configen "project:config_generator"
 
 Options :: struct {
     gencode: bool,
     mkconfig: bool,
     rdconfig: bool,
     run: bool,
+    debug: bool,
+    build: bool,
 }
 
 main :: proc() {
@@ -31,18 +32,52 @@ main :: proc() {
     }
 
     if opt.gencode {
-        meta.main()
+        //meta.main()
     }
 
-    if opt.run {
-        main.prog_main()
+    if opt.run || opt.build {
+        commands: [][]string = {
+            opt.build ? {"odin", "build", "../src", "-out:editor", "-collection:project=../", opt.debug ? "-debug" : ""} : {},
+            opt.run ? {"./editor"} : {}
+        }
+
+        os.change_directory("./environment/")
+
+        for command in commands {
+            if len(command) == 0 {
+                continue
+            }
+
+            desc := os.Process_Desc {
+                command = command,
+                stdout = os.stdout,
+                stderr = os.stderr,
+            }
+
+            p, err := os.process_start(desc)
+            if err != nil {
+                fmt.println("[BUILD] command failed with: ", err)
+            }
+
+            state, wait_err := os.process_wait(p)
+            if wait_err != nil {
+                fmt.println("[BUILD] project wait error: ", wait_err)
+            }
+            
+            fmt.printfln("[COMMAND_EXIT] %v", state.exit_code)
+            if state.exit_code == 1 {
+                break;
+            }
+        }
     }
+
+    // will remove these eventually since they only serve testers
     
-    if opt.mkconfig {
-        configen.output_main()
-    }
+    //if opt.mkconfig {
+    //    configen.output_main()
+    //}
 
-    if opt.rdconfig {
-        configen.input_main()
-    }
+    //if opt.rdconfig {
+    //    configen.input_main()
+    //}
 }

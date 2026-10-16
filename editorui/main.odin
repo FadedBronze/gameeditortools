@@ -100,6 +100,17 @@ EditorUI :: struct {
 
     editor_context: ^clay.Context,
     panel_pool: ed.PanelPool,
+
+    control_panel: ControlPanel,
+}
+
+EditorState :: enum {
+    Running,
+    Close,
+}
+
+ControlPanel :: struct { 
+    state: EditorState "dropdown",
 }
 
 IndexType :: enum u16 {
@@ -108,7 +119,7 @@ IndexType :: enum u16 {
     DropdownFloatingMenu,
     DropdownTextInput,
     Gameview,
-    Meta,
+    Button,
 }
 
 ViewportIndex :: distinct u32
@@ -207,6 +218,24 @@ create_render_infos :: proc(theme: EditorUITheme) -> RenderInfos {
     return render_infos
 }
 
+button :: proc(sizing: clay.Sizing) {
+    custom_id := CustomId {
+        type = .Button,
+    }
+
+    if clay.UI()({ 
+        layout = { 
+            sizing = sizing,
+            padding = clay.PaddingAll(5),
+            childAlignment = clay.ChildAlignment {
+                x = .Right,
+                y = .Top
+            }
+        }, 
+        backgroundColor = ut.color_to_f32list(ut.change_opacity(ut.WHITE, 50)),
+    }) {}
+}
+
 custom_input_id :: proc(input_index: ed.InputIndex) -> CustomId {
     return CustomId {
         type = .InputIndex,
@@ -237,6 +266,7 @@ create_editorui :: proc(theme: EditorUITheme, allocator: mem.Allocator) -> Edito
         editor_context = editor_context,
     }
 }
+
 
 render_structure_panel :: proc(editor_ui: ^EditorUI, id: string, structure: ^$T, label: string, frame_allocator: mem.Allocator = context.temp_allocator) {
     editor_ui.render_infos = create_render_infos(editor_ui.theme)

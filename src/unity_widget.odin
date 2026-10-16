@@ -7,25 +7,27 @@ import "project:editorui"
 import "core:fmt"
 
 // these are the stubs
-widget :: proc(e: ^editorui.EditorUI, b: ^$T, id: string, frame_allocator: mem.Allocator) {
-    fmt.println("comment out the stubs in ./src/unity_widget.odin once you've generated the code")
-}
-
-widget_init :: proc(e: ^editorui.EditorUI, b: ^$T, id: string) {
-    fmt.println("comment out the stubs in ./src/unity_widget.odin once you've generated the code")
-}
-
-// these reference the meta generated code
-//widget :: proc {
-//    editor_settings_widget,
-//    theme_widget,
-//    color_widget,
-//    grid_widget,
+//widget :: proc(e: ^editorui.EditorUI, b: ^$T, id: string, frame_allocator: mem.Allocator) {
+//    fmt.println("comment out the stubs in ./src/unity_widget.odin once you've generated the code")
 //}
 //
-//widget_init :: proc {
-//    editor_settings_widget_init,
-//    theme_widget_init,
-//    color_widget_init,
-//    grid_widget_init,
+//widget_init :: proc(e: ^editorui.EditorUI, b: ^$T, id: string) {
+//    fmt.println("comment out the stubs in ./src/unity_widget.odin once you've generated the code")
 //}
+
+// these reference the meta generated code
+widget :: proc {
+    //transform_widget,
+    editor_settings_widget,
+    theme_widget,
+    color_widget,
+    grid_widget,
+}
+
+widget_init :: proc {
+    //transform_widget_init,
+    editor_settings_widget_init,
+    theme_widget_init,
+    color_widget_init,
+    grid_widget_init,
+}
