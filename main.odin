@@ -3,8 +3,7 @@ package build
 import "core:os"
 import "core:flags"
 import "core:fmt"
-//import meta "project:meta"
-//import configen "project:config_generator"
+import meta "project:meta"
 
 Options :: struct {
     gencode: bool,
@@ -32,7 +31,7 @@ main :: proc() {
     }
 
     if opt.gencode {
-        //meta.main()
+        meta.main()
     }
 
     if opt.run || opt.build {
