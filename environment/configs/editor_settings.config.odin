@@ -11,7 +11,7 @@ import main "project:src"
 
 editor_settings_config: main.EditorSettings = {
     // options = WorldViewports, Player, State, TileEditor, Entities
-    open_views = { .TileEditor },
+    open_views = { .Player, .State, .TileEditor },
     selected_tile = {
         environment = {
             // options = Exists, Blocked

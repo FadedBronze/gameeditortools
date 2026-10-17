@@ -161,7 +161,7 @@ struct_to_scone_recurse :: proc(
             name := underlying_info.names[i]
             value := underlying_info.values[i] 
             
-            if (info.upper != 0 && ut.get_bit(slice.from_ptr(cast(^u8)data, int(info.upper)), u32(info.lower)+u32(i))) {
+            if (info.upper != 0 && ut.get_bit(slice.from_ptr(cast(^u8)data, int(info.upper/8)+1), u32(info.lower)+u32(i))) {
                 at_least_one_flag_set = true
                 append(output, ".")
                 append(output, name)
@@ -239,6 +239,17 @@ struct_to_scone_recurse :: proc(
 
         buf: [64]u8
         append(output, strconv.write_int(buf[:], num, 10))
+    case rn.Type_Info_Array:
+        append(output, "{\n")
+
+        for i in 0..<info.count {
+            append(output, indent_spaces)
+            struct_to_scone_recurse(info.elem, output, cast(rawptr)(uintptr(data)+uintptr(info.elem_size*i)), indent_level+1, tab_size, name)
+            append(output, ",\n")
+        } 
+        
+        append(output, smaller_indent)
+        append(output, "}")
     case rn.Type_Info_String:
         str := (cast(^string)data)^
         append(output, '"')

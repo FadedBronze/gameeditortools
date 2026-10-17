@@ -5,6 +5,7 @@ import clay "project:clay-odin"
 import editorui "project:editorui"
 import rn "project:raylibeditoruirenderer"
 import ut "project:utils"
+import configen "project:config_generator"
 
 import "core:slice"
 import "core:strings"
@@ -182,14 +183,6 @@ error_handler :: proc "c" (errorData: clay.ErrorData) {
     //fmt.println(errorData)
 }
 
-ConfigFile :: enum {
-    EditorSettings,
-}
-
-config_file_paths: [ConfigFile]string = {
-    .EditorSettings = "./configs/editor_settings.config.odin",
-}
-
 main :: proc() { 
     rl.InitWindow(1080, 720, "yay")
     rl.SetWindowState({.WINDOW_RESIZABLE})
@@ -209,6 +202,9 @@ main :: proc() {
     appdata: AppData
     init_app(&appdata, context.allocator)
     
+    configen.parse_scone_from_file(config_file_paths[.EditorSettings], &appdata.editor_settings)
+    configen.parse_scone_from_file(config_file_paths[.ThemeSettings], &editor_ui.theme)
+    
     editorui.initialize_fn_ptrs(
         &editor_ui, 
         rn.measure_text, 
@@ -224,5 +220,16 @@ main :: proc() {
 
     editorui.run(&editor_ui, &appdata)
 
-    exit_app(&appdata)
+    configen.output_scone(&appdata.editor_settings, "editor_settings", "configs", "./configs/", "main", "project:src", 4)
+    configen.output_scone(&editor_ui.theme, "theme_settings", "configs", "./configs/", "edui", "project:editorui", 4)
+}
+
+ConfigFile :: enum {
+    EditorSettings,
+    ThemeSettings,
+}
+
+config_file_paths: [ConfigFile]string = {
+    .EditorSettings = "./configs/editor_settings.config.odin",
+    .ThemeSettings = "./configs/theme_settings.config.odin"
 }

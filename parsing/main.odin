@@ -66,9 +66,7 @@ skip_to_next_line :: proc(offset: u32, main_str: string) -> u32 {
     offset := offset
     offset = skip_over_next(offset, main_str, "\n")
     for offset < u32(len(main_str)) {
-        if main_str[offset] == '/' && int(offset+1) < len(main_str) && main_str[offset+1] == '/' {
-            offset += 2
-        } else if main_str[offset] == '\n' || main_str[offset] == ' ' {
+        if main_str[offset] == '\n' || main_str[offset] == ' ' {
             offset += 1
         } else {
             break;

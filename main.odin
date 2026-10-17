@@ -8,8 +8,8 @@ import "core:fmt"
 
 Options :: struct {
     gencode: bool,
-    mkconfig: bool,
-    rdconfig: bool,
+    //mkconfig: bool,
+    //rdconfig: bool,
     run: bool,
     debug: bool,
     build: bool,
