@@ -121,6 +121,7 @@ create_layout :: proc(
                 //}
 
                 editorui.render_structure_panel(editor_ui, "Control Panel", &editor_ui.control_panel, "Control Panel")
+                editorui.render_structure_panel(editor_ui, "Actions", &appdata.control, "Actions")
                 widget(editor_ui, &editor_ui.theme, "Theme", context.temp_allocator)
             }
         }
@@ -222,6 +223,8 @@ main :: proc() {
 
     configen.output_scone(&appdata.editor_settings, "editor_settings", "configs", "./configs/", "main", "project:src", 4)
     configen.output_scone(&editor_ui.theme, "theme_settings", "configs", "./configs/", "edui", "project:editorui", 4)
+
+    exit_app(&appdata)
 }
 
 ConfigFile :: enum {

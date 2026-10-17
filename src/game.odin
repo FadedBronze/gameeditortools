@@ -8,6 +8,9 @@ import la "core:math/linalg"
 import "core:math/rand"
 import "core:fmt"
 import "core:mem"
+import "core:encoding/cbor"
+import "core:os"
+import "core:strings"
 
 Direction :: enum u8 {
     Up,
@@ -39,7 +42,7 @@ Tile :: struct {
 
 MAX_ENTITIES :: 10000
 INIT_MEMORY_BUFFER_SIZE :: 10000000
-FRAME_MEMORY_BUFFER_SIZE :: 50000
+FRAME_MEMORY_BUFFER_SIZE :: 5000000
 
 ViewportDrag :: struct {
     active: editorui.ViewportIndex,
@@ -77,10 +80,6 @@ Signals :: enum {
     GoRight,
 }
 
-Player :: struct {
-    signals: Signals "dropdown",
-}
-
 EmptyDrag :: struct {}
 
 Drag :: union {
@@ -88,39 +87,88 @@ Drag :: union {
     ViewportDrag,
 }
 
+// loaded at start but is modified at runtime -- currently not loaded though
+BinaryLoadedData :: struct {
+    grid: Grid(Tile),
+}
+
+ConfigLoadedData :: struct {
+    editor_settings: EditorSettings,
+    linegrid: RectangleLineGrid,
+}
+
+save_binary_data_to_disk :: proc(b: BinaryLoadedData, level: string, frame_allocator: mem.Allocator) -> bool {
+    data, err_marshall := cbor.marshal_into_bytes(b, allocator=frame_allocator, temp_allocator=frame_allocator)
+    if err_marshall != nil {
+        fmt.println("failed to marshal data", err_marshall)
+        return false
+    }
+    err := os.write_entire_file(strings.concatenate({"./leveldata/", level}, allocator=frame_allocator), data)
+    if err != nil {
+        fmt.println("failed to save level", level, "to disk")
+        return false
+    }
+    fmt.println("data saved successfully")
+    return true
+}
+
+load_binary_data_from_disk :: proc(b: ^BinaryLoadedData, level: string, init_allocator: mem.Allocator) -> bool {
+    data, err := os.read_entire_file_from_path(strings.concatenate({"./leveldata/", level}), init_allocator)
+    if err != nil {
+        fmt.println("failed to load level", level, "from disk")
+        return false
+    }
+    err_marshall := cbor.unmarshal_from_bytes(data, b)
+    if err_marshall != nil {
+        fmt.println("failed to unmarshal data", err_marshall)
+        return false
+    }
+    fmt.println("data loaded successfully")
+    return true
+}
+
+Actions :: bit_set[enum {
+    LoadDataFromDisk,
+    RecomputeGridHitboxes,
+}]
+
 AppData :: struct {
+    // time
     delta_time: f32,
     sim_time: f32, // seconds since simulation start marks ability activation boundraries
 
+    control: struct {
+        actions: Actions "dropdown",
+        load_level: enum {
+            Level1,
+        } "dropdown",
+    },
+
+    // intermediate state
+    drag: Drag,
     ui_context: ^clay.Context,
+    computed_simplified_collision_hitboxes: []ut.Bounds(f64), // greedy meshed hitboxes
+
+    // true state
+    active_tile: GridPosition, // hovered tile essentially
+
+    viewports: [2]WorldViewport2D,
+    grid_physics: PhysicsSurface,
+    entities: []Entity,
+    entities_count: u32, // zero corresponds to null
+
+    // memory
     frame_buffer: []u8,
     frame_allocator: mem.Arena,
     init_buffer: []u8,
     init_allocator: mem.Arena,
 
-    editor_settings: EditorSettings,
+    // loaded data
+    using config_loaded: ConfigLoadedData,
+    using binary_loaded: BinaryLoadedData,
 
+    // assets
     sprite_sheet: SpriteSheet(FirstGameSheetId),
-
-    viewports: [2]WorldViewport2D,
-    linegrid: RectangleLineGrid,
-
-    grid_physics: PhysicsSurface,
-
-    grid: Grid(Tile),
-
-    // greedy meshed hitboxes
-    computed_simplified_collision_hitboxes: []ut.Bounds(f64),
-
-    entities: []Entity,
-    entities_count: u32, // zero corresponds to null
-
-    player: Player,
-
-    drag: Drag,
-
-    // hovered tile essentially
-    active_tile: GridPosition,
 }
 
 // TODO will have to redo the greedy mesher to support varying properties on different tiles
@@ -149,9 +197,39 @@ update :: proc(appdata: rawptr, delta_time: f32) {
             grid_mat := ut.create_matrix_from_transform(appdata.linegrid.transform)
 
             entity.velocity += grid_to_world_position({0.0, 0.00981}, appdata.linegrid) * f64(delta_time)
+            
+            box := ut.apply_matrix_to_bounds(ut.create_matrix_from_transform(entity.transform), entity.hitbox)
+
+            for j in i+1..<appdata.entities_count {
+                entity2 := &appdata.entities[j]
+                box2 := ut.apply_matrix_to_bounds(ut.create_matrix_from_transform(entity2.transform), entity2.hitbox)
+
+                hit, normal, depth := collide_aabb(box, box2)
+
+                if hit {
+                    entity.transform.offset -= normal * depth/2
+                    entity2.transform.offset += normal * depth/2
+
+                    delta_v := entity.velocity-entity2.velocity
+                    vel_mag := la.length(delta_v)
+                    vel_normal := la.normalize(delta_v)
+                    surface_normal := normal
+                    surface := la.vector2_orthogonal(surface_normal)
+
+                    f := entity.physics_surface.friction*entity2.physics_surface.friction
+                    e := entity2.physics_surface.restitution * entity.physics_surface.restitution
+                    
+                    friction := (la.dot(surface, vel_normal) * vel_mag * f) * surface
+
+                    entity.velocity -= (la.dot(surface_normal, vel_normal) * vel_mag * (e + 1)) * surface_normal
+                    entity.velocity -= friction
+                    
+                    entity2.velocity += (la.dot(surface_normal, vel_normal) * vel_mag * (e + 1)) * surface_normal
+                    entity2.velocity += friction
+                }
+            }
 
             for bound, i in appdata.computed_simplified_collision_hitboxes {
-                box := ut.apply_matrix_to_bounds(ut.create_matrix_from_transform(entity.transform), entity.hitbox)
                 hit, normal, depth := collide_aabb(box, bound)
 
                 if hit {
@@ -174,14 +252,27 @@ update :: proc(appdata: rawptr, delta_time: f32) {
             if rl.IsKeyDown(.A) {
                 entity.velocity.x = -0.005
             }
-            if rl.IsKeyDown(.W) {
-                entity.velocity.y = -0.001
+            if rl.IsKeyPressed(.W) {
+                entity.velocity.y = -0.01
             }
 
             entity.transform.offset += entity.velocity
         }
     }
+    
+    if .LoadDataFromDisk in appdata.control.actions {
+        load_binary_data_from_disk(&appdata.binary_loaded, "1", mem.arena_allocator(&appdata.init_allocator))
 
+        appdata.control.actions -= {.LoadDataFromDisk}
+        appdata.control.actions += {.RecomputeGridHitboxes}
+    }
+
+    if .RecomputeGridHitboxes in appdata.control.actions {
+        worldspace_bounds := greedy_mesh_grid_into_worldspace_aabb_bounds_list(appdata.grid, appdata.linegrid)
+        appdata.computed_simplified_collision_hitboxes = worldspace_bounds;
+
+        appdata.control.actions -= {.RecomputeGridHitboxes}
+    }
 
     mem.arena_free_all(&appdata.frame_allocator)
 }
@@ -392,41 +483,33 @@ init_app :: proc(appdata: ^AppData, allocator: mem.Allocator) {
         },
     }
 
-    //appdata.editor_settings = editor_conf
+    // ===== game initialization =====
+    appdata.linegrid = RectangleLineGrid {
+        width = 1,
+        height = 1,
+        transform = ut.TRANSFORM_IDENTITY_F64,
+    }
 
-    // game initialization
-    {
-        appdata.linegrid = RectangleLineGrid {
-            width = 1,
-            height = 1,
-            transform = ut.TRANSFORM_IDENTITY_F64,
-        }
+    appdata.grid_physics = PhysicsSurface {
+        friction = 0.6,
+        restitution = 0.3,
+    }
 
-        appdata.grid_physics = PhysicsSurface {
-            friction = 0.6,
-            restitution = 0.3,
-        }
+    appdata.sprite_sheet = create_first_game_sheet()
 
-        appdata.sprite_sheet = create_first_game_sheet()
+    resize_grid(&appdata.grid, ut.Bounds(i32){
+        x = -8,
+        y = -20,
+        width = 16,
+        height = 80,
+    }, mem.arena_allocator(&appdata.init_allocator))
 
-        appdata.player = Player {
-            signals = .Wait,
-        }
+    //spawn_land_borders(appdata)
+    
+    // hitboxes
+    appdata.control.actions += { .LoadDataFromDisk }
 
-        resize_grid(&appdata.grid, ut.Bounds(i32){
-            x = -8,
-            y = -20,
-            width = 16,
-            height = 80,
-        }, mem.arena_allocator(&appdata.init_allocator))
-
-        //spawn_random_land(appdata)
-        spawn_land_borders(appdata)
-        
-        // hitboxes
-        worldspace_bounds := greedy_mesh_grid_into_worldspace_aabb_bounds_list(appdata.grid, appdata.linegrid)
-        appdata.computed_simplified_collision_hitboxes = worldspace_bounds;
-
+    for i in 0..<4 {
         create_entity(appdata, Entity {
             physics_surface = PhysicsSurface {
                 friction = 0.6,
@@ -436,9 +519,15 @@ init_app :: proc(appdata: ^AppData, allocator: mem.Allocator) {
             sprite = .PlayerHappy,
             hitbox = ut.centered_bounds_from_lh(f64(1.3), 1.3),
             transform = {
-                offset = {0, 0},
+                offset = {f64(2*i-5), 0},
                 scale = {1, 1}
             }
         })
-    }    
+    }
+
+    // ===== 
+}
+
+exit_app :: proc(appdata: ^AppData) {
+    save_binary_data_to_disk(appdata.binary_loaded, "1", mem.arena_allocator(&appdata.frame_allocator))
 }
