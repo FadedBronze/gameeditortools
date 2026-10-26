@@ -11,6 +11,8 @@ import "core:mem"
 import "core:encoding/cbor"
 import "core:os"
 import "core:strings"
+import configen "project:config_generator"
+import rn "project:raylibeditoruirenderer"
 
 Direction :: enum u8 {
     Up,
@@ -169,6 +171,9 @@ AppData :: struct {
 
     // assets
     sprite_sheet: SpriteSheet(FirstGameSheetId),
+
+    // editorui
+    editor_ui: editorui.EditorUI,
 }
 
 // TODO will have to redo the greedy mesher to support varying properties on different tiles
@@ -178,8 +183,7 @@ PhysicsSurface :: struct {
     friction: f64,
 }
 
-update :: proc(appdata: rawptr, delta_time: f32) {
-    appdata: ^AppData = cast(^AppData)appdata
+update :: proc(appdata: ^AppData, delta_time: f32) {
     appdata.delta_time = delta_time
  
     b := appdata.grid.bounds
@@ -407,7 +411,7 @@ render :: proc(appdata: rawptr, screen_rect: ut.Bounds(f32), id: editorui.Viewpo
     clay.SetCurrentContext(appdata.ui_context)
     clay.BeginLayout()
     elements := clay.EndLayout(appdata.delta_time)
-    clay_renderer(elements)
+    clay_basic_renderer(elements)
 }
 
 spawn_random_land :: proc(appdata: ^AppData) {
@@ -525,9 +529,38 @@ init_app :: proc(appdata: ^AppData, allocator: mem.Allocator) {
         })
     }
 
-    // ===== 
+    // ===== editor ui
+    appdata.editor_ui = editorui.create_editorui(editorui.EditorUITheme {
+        font_size = 16,
+        letter_spacing = 1,
+        text_color = ut.Color {192, 192, 192, 240},
+        background_color = ut.BLACK,
+        highlight_color = ut.Color {255, 0, 0, 255}
+    }, context.allocator)
+    
+    configen.parse_scone_from_file(config_file_paths[.EditorSettings], &appdata.editor_settings)
+    configen.parse_scone_from_file(config_file_paths[.ThemeSettings], &appdata.editor_ui.theme)
+    
+    widget_init(&appdata.editor_ui, &appdata.editor_settings, "Editor Settings")
+    widget_init(&appdata.editor_ui, &appdata.editor_ui.theme, "Theme")
+    widget_init(&appdata.editor_ui, &appdata.linegrid, "Grid")
+    
+    rn.init_font_table(&rn.font_table, context.allocator)
+}
+
+ConfigFile :: enum {
+    EditorSettings,
+    ThemeSettings,
+}
+
+config_file_paths: [ConfigFile]string = {
+    .EditorSettings = "./configs/editor_settings.config.odin",
+    .ThemeSettings = "./configs/theme_settings.config.odin"
 }
 
 exit_app :: proc(appdata: ^AppData) {
     save_binary_data_to_disk(appdata.binary_loaded, "1", mem.arena_allocator(&appdata.frame_allocator))
+    
+    configen.output_scone(&appdata.editor_settings, "editor_settings", "configs", "./configs/", "main", "project:src", 4)
+    configen.output_scone(&appdata.editor_ui.theme, "theme_settings", "configs", "./configs/", "edui", "project:editorui", 4)
 }

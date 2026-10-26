@@ -3,9 +3,8 @@ package main
 import rl "vendor:raylib"
 import clay "project:clay-odin"
 import editorui "project:editorui"
-import rn "project:raylibeditoruirenderer"
 import ut "project:utils"
-import configen "project:config_generator"
+import rn "project:raylibeditoruirenderer"
 
 import "core:slice"
 import "core:strings"
@@ -14,9 +13,10 @@ import "core:fmt"
 
 create_layout :: proc(
     editor_ui: ^editorui.EditorUI, 
-    appdata: ^AppData, 
+    appdata: rawptr,
     delta_time: f32,
 ) -> clay.ClayArray(clay.RenderCommand) {
+    appdata := cast(^AppData)appdata
     clay.BeginLayout()
 
     bg := ut.change_opacity(ut.get_contrasting_color(editor_ui.theme.background_color), 20)
@@ -130,7 +130,7 @@ create_layout :: proc(
     return clay.EndLayout(auto_cast delta_time)
 }
 
-clay_renderer :: proc(elements: clay.ClayArray(clay.RenderCommand)) {  
+clay_basic_renderer :: proc(elements: clay.ClayArray(clay.RenderCommand)) {  
     slx := slice.from_ptr(elements.internalArray, auto_cast elements.length)
 
     for element in slx {
@@ -187,52 +187,26 @@ error_handler :: proc "c" (errorData: clay.ErrorData) {
 main :: proc() { 
     rl.InitWindow(1080, 720, "yay")
     rl.SetWindowState({.WINDOW_RESIZABLE})
-
-    editor_ui: editorui.EditorUI = editorui.create_editorui(editorui.EditorUITheme {
-        font_size = 16,
-        letter_spacing = 1,
-        text_color = ut.Color {192, 192, 192, 240},
-        background_color = ut.BLACK,
-        highlight_color = ut.Color {255, 0, 0, 255}
-    }, context.allocator)
-    
-    layout := proc(editor_ui: ^editorui.EditorUI, appdata: rawptr, delta_time: f32) -> clay.ClayArray(clay.RenderCommand) {
-        return create_layout(editor_ui, cast(^AppData)appdata, rl.GetFrameTime())
-    }
-    
+ 
     appdata: AppData
-    init_app(&appdata, context.allocator)
-    
-    configen.parse_scone_from_file(config_file_paths[.EditorSettings], &appdata.editor_settings)
-    configen.parse_scone_from_file(config_file_paths[.ThemeSettings], &editor_ui.theme)
-    
-    editorui.initialize_fn_ptrs(
-        &editor_ui, 
-        rn.measure_text, 
-        layout, 
-        rn.render_editor, 
-        { fn = render, data = &appdata },
-        { fn = update, data = &appdata }
-    )
-    
-    widget_init(&editor_ui, &appdata.editor_settings, "Editor Settings")
-    widget_init(&editor_ui, &editor_ui.theme, "Theme")
-    widget_init(&editor_ui, &appdata.linegrid, "Grid")
+    init_app(&appdata, context.allocator)     
 
-    editorui.run(&editor_ui, &appdata)
+    irenderer := rn.get_interface()
+    irenderer.init(irenderer.implementation_data)
 
-    configen.output_scone(&appdata.editor_settings, "editor_settings", "configs", "./configs/", "main", "project:src", 4)
-    configen.output_scone(&editor_ui.theme, "theme_settings", "configs", "./configs/", "edui", "project:editorui", 4)
+    for !irenderer.should_close(irenderer.implementation_data, &appdata.editor_ui) {  
+        dt := rl.GetFrameTime()
+
+        irenderer.draw_editor(irenderer.implementation_data, editorui.DrawEditorParams{
+            editor_ui = &appdata.editor_ui,
+            layout_fn = create_layout, 
+            game_render_fn = render, 
+            appdata = &appdata, 
+            dt = dt
+        })
+
+        update(&appdata, dt)
+    }
 
     exit_app(&appdata)
-}
-
-ConfigFile :: enum {
-    EditorSettings,
-    ThemeSettings,
-}
-
-config_file_paths: [ConfigFile]string = {
-    .EditorSettings = "./configs/editor_settings.config.odin",
-    .ThemeSettings = "./configs/theme_settings.config.odin"
 }

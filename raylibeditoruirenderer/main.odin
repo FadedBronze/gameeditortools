@@ -11,7 +11,6 @@ import "core:mem"
 import "core:strconv"
 import "core:strings"
 import "core:slice"
-import "core:fmt"
 import "base:runtime"
 
 FontKey :: struct {
@@ -92,7 +91,15 @@ measure_text :: proc "c" (
 //	return {width = line_width * scaleFactor + total_spacing, height = f32(config.fontSize)}
 //}
 
-clay_raylib_render :: proc(editor_ui: ^editorui.EditorUI, elements: clay.ClayArray(clay.RenderCommand), allocator: mem.Allocator, frame_allocator: mem.Allocator, dt: f32) {  
+clay_raylib_render :: proc(
+    editor_ui: ^editorui.EditorUI, 
+    elements: clay.ClayArray(clay.RenderCommand), 
+    allocator: mem.Allocator, 
+    frame_allocator: mem.Allocator, 
+    render_game: editorui.GameRenderFunction,
+    appdata: rawptr,
+    dt: f32,
+) {  
     slx := slice.from_ptr(elements.internalArray, auto_cast elements.length)
 
     for element in slx {
@@ -125,7 +132,7 @@ clay_raylib_render :: proc(editor_ui: ^editorui.EditorUI, elements: clay.ClayArr
             case .Custom:
                 //fmt.println(render_command.renderData.custom.customData)
                 //TODO false
-                render_custom_widget(editor_ui, render_command, editor_ui.render_infos, allocator, frame_allocator, dt)
+                render_custom_widget(editor_ui, render_command, editor_ui.render_infos, allocator, frame_allocator, render_game, appdata, dt)
             case .ScissorStart:
                 rl.BeginScissorMode(
                     i32(render_command.boundingBox.x),
@@ -435,7 +442,14 @@ render_multi_dropdown_input :: proc(
 }
 
 render_custom_widget :: proc(
-    editor_ui: ^editorui.EditorUI, render_command: clay.RenderCommand, render_infos: editorui.RenderInfos, allocator: mem.Allocator, frame_allocator: mem.Allocator, dt: f32
+    editor_ui: ^editorui.EditorUI, 
+    render_command: clay.RenderCommand, 
+    render_infos: editorui.RenderInfos, 
+    allocator: mem.Allocator, 
+    frame_allocator: mem.Allocator, 
+    render_game: editorui.GameRenderFunction,
+    appdata: rawptr,
+    dt: f32
 ) {
     custom_id := transmute(editorui.CustomId)render_command.renderData.custom.customData
 
@@ -466,7 +480,7 @@ render_custom_widget :: proc(
                 vertical = true,
             }
         }) {
-            editor_ui.render_game.fn(editor_ui.render_game.data, transmute(ut.Bounds(f32))render_command.boundingBox, custom_id.value.gameview_id)
+            render_game(appdata, transmute(ut.Bounds(f32))render_command.boundingBox, custom_id.value.gameview_id)
             clay.SetCurrentContext(editor_ui.editor_context)
         }
     case .DropdownFloatingMenu:
@@ -913,28 +927,40 @@ render_number_input :: proc(
     }
 }
 
-render_editor : editorui.RenderFunction = proc(
-    editor_ui: ^editorui.EditorUI, 
-    userdata: rawptr,
+draw_editor_immediate_from_layout :: proc(
+    data: ^RaylibEditorRendererData,
+    params: editorui.DrawEditorParams,
 ) {
-    //TODO
-    init_font_table(&font_table, context.allocator)
+    mouse_position := rl.GetMousePosition()
+    mouse_down := rl.IsMouseButtonDown(.LEFT)
 
-    for !rl.WindowShouldClose() && editor_ui.control_panel.state == .Running {
-        dt := rl.GetFrameTime()
+    rl.ClearBackground(auto_cast params.editor_ui.theme.background_color)
+    clay.SetMeasureTextFunction(measure_text, nil)
+    clay.SetCurrentContext(params.editor_ui.editor_context)
+    clay.SetPointerState(mouse_position, mouse_down)
+    clay.SetLayoutDimensions({auto_cast rl.GetScreenWidth(), auto_cast rl.GetScreenHeight()})
 
-        mouse_position := rl.GetMousePosition()
-        mouse_down := rl.IsMouseButtonDown(.LEFT)
+    layout := params.layout_fn(params.editor_ui, params.appdata, params.dt)
+    
+    clay_raylib_render(params.editor_ui, layout, context.allocator, context.temp_allocator, params.game_render_fn, params.appdata, params.dt)
 
-        clay.SetCurrentContext(editor_ui.editor_context)
-        clay.SetPointerState(mouse_position, mouse_down)
-        clay.SetLayoutDimensions({auto_cast rl.GetScreenWidth(), auto_cast rl.GetScreenHeight()})
-        layout := editor_ui.layout_fn(editor_ui, userdata, dt)
-        
-        editor_ui.update_game.fn(editor_ui.update_game.data, dt)
+    rl.EndDrawing()
+}
 
-        rl.ClearBackground(auto_cast editor_ui.theme.background_color)
-        clay_raylib_render(editor_ui, layout, context.allocator, context.temp_allocator, dt)
-        rl.EndDrawing()
+should_close_app :: proc(data: ^RaylibEditorRendererData, editor_ui: ^editorui.EditorUI) -> bool {
+    return rl.WindowShouldClose() || editor_ui.control_panel.state == .Close
+}
+
+RaylibEditorRendererData :: struct {}
+
+init :: proc(data: ^RaylibEditorRendererData) {
+}
+
+get_interface :: proc() -> editorui.InterfaceUIRenderer(RaylibEditorRendererData) {
+    return {
+        draw_editor = draw_editor_immediate_from_layout,
+        implementation_data = nil,
+        init = init,
+        should_close = should_close_app,
     }
 }

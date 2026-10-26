@@ -93,10 +93,7 @@ EditorUI :: struct {
     using active: ActiveInfo,
 
     panels: map[string]ed.GroupIndex,
-    layout_fn: LayoutFunction,
-    render_fn: RenderFunction,
-    update_game: GameUpdateCallback,
-    render_game: GameRenderCallback,
+    render_game: GameRenderFunction,
 
     editor_context: ^clay.Context,
     panel_pool: ed.PanelPool,
@@ -138,15 +135,7 @@ error_handler :: proc "c" (errorData: clay.ErrorData) {
     //fmt.println(errorData)
 }
 
-GameUpdateCallback :: struct {
-    fn: proc(rawptr, f32),
-    data: rawptr,
-}
-
-GameRenderCallback :: struct {
-    fn: proc(rawptr, ut.Bounds(f32), ViewportIndex),
-    data: rawptr,
-}
+GameRenderFunction :: proc(rawptr, ut.Bounds(f32), ViewportIndex)
 
 RenderFunction :: proc(^EditorUI, rawptr)
 
@@ -158,19 +147,19 @@ LayoutFunction :: proc (
 
 MeasureTextFunction :: proc "c" (text: clay.StringSlice, config: ^clay.TextElementConfig, userData: rawptr) -> clay.Dimensions
 
-initialize_fn_ptrs :: proc(
-    editor_ui: ^EditorUI,
-    measure_text: MeasureTextFunction,
-    layout_fn: LayoutFunction,
-    render_fn: RenderFunction,
-    game_render_fn: GameRenderCallback,
-    update_fn: GameUpdateCallback,
-) {
-    editor_ui.layout_fn = layout_fn
-    editor_ui.render_fn = render_fn
-    editor_ui.render_game = game_render_fn
-    editor_ui.update_game = update_fn
-    clay.SetMeasureTextFunction(measure_text, nil)
+DrawEditorParams :: struct {
+    editor_ui: ^editorui.EditorUI,
+    layout_fn: editorui.LayoutFunction, 
+    game_render_fn: editorui.GameRenderFunction,
+    appdata: rawptr, 
+    dt: f32
+}
+
+InterfaceUIRenderer :: struct(T: typeid) {
+    implementation_data: ^T,
+    init: proc(implementation_data: ^T),
+    should_close: proc(implementation_data: ^T, editor_ui: ^EditorUI) -> bool,
+    draw_editor: proc(implementation_data: ^T, params: DrawEditorParams),
 }
 
 create_render_infos :: proc(theme: EditorUITheme) -> RenderInfos {
@@ -499,10 +488,6 @@ custom_component_panel :: proc(editor_ui: ^EditorUI, widget: ed.InputIndex, fram
             }
         }
     }
-}
-
-run :: proc(editorui: ^EditorUI, data: ^$T) {
-    editorui.render_fn(editorui, data)
 }
 
 gameview :: proc(id: ViewportIndex) {
