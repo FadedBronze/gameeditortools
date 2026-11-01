@@ -9,7 +9,7 @@ import "core:testing"
 GridPosition :: [2]i32
 
 Grid :: struct(T: typeid) {
-    bounds: ut.Bounds(i32) "group",
+    bounds: ut.Bounds(i32) "readonly group",
     tiles: []T,
 }
 

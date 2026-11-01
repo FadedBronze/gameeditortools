@@ -354,20 +354,7 @@ calculate_dropdown_height :: proc(entries: int, dropdown: DropdownRenderInfo) ->
     return (gap+font_size)*f32(entries+1)-gap+inner_padding
 }
 
-// split ID and UI to make callable
-// target
-
-custom_component :: proc {
-    custom_component_meta,
-    custom_component_panel
-}
-
-custom_component_meta :: proc(editor_ui: ^EditorUI, input_component: ed.InputComponent, id: string, frame_allocator: mem.Allocator) {
-
-    append(&editor_ui.panel_pool.inputs, input_component)
-}
-
-custom_component_panel :: proc(editor_ui: ^EditorUI, widget: ed.InputIndex, frame_allocator: mem.Allocator) {
+custom_component :: proc(editor_ui: ^EditorUI, widget: ed.InputIndex, frame_allocator: mem.Allocator) {
     sizing: clay.Sizing
     
     size := clay.SizingFixed(f32(editor_ui.theme.font_size))

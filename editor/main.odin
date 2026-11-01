@@ -11,6 +11,7 @@ InputIndex :: distinct u32
 
 Toggle :: struct {
     current: ^bool,
+    readonly: bool,
 }
 
 NumberInputType :: enum {
@@ -24,22 +25,26 @@ NumberInput :: struct(T: typeid) {
     min: T,
     current: ^T,
     max: T,
+    readonly: bool,
 }
 
 TextInputString :: struct {
     placeholder: string,
     text: ^string,
+    readonly: bool,
 }
 
 TextInputMutableBuffer :: struct {
     placeholder: string,
     text: EditableText,
+    readonly: bool,
 }
 
 Dropdown :: struct(T: typeid) {
     enum_names: []string,
     enum_values: []rn.Type_Info_Enum_Value,
     current: ^T,
+    readonly: bool,
 }
 
 MultiDropdown :: struct {
@@ -47,6 +52,7 @@ MultiDropdown :: struct {
     upper: u32,
     lower: u32,
     current: []u8,
+    readonly: bool,
 }
 
 InputComponent :: union {
@@ -95,6 +101,7 @@ TagFlags :: bit_set[enum {
     Empty,
     Text,
     Dropdown,
+    Readonly,
 }]
 
 ParsedTag :: struct {
@@ -121,6 +128,9 @@ parse_tag :: proc(tag: string) -> ParsedTag {
             ok: bool
             res.max, ok = strconv.parse_f64(str[3+1:len(str)-1])
             assert(ok)
+        }
+        if strings.contains(str, "readonly") {
+            res.flags += {.Readonly}
         }
         if strings.contains(str, "min") {
             res.flags += {.Min}
@@ -161,7 +171,9 @@ create_panel_recurse_struct_fields :: proc(
     parent: ^Group,
     parent_idx: GroupIndex,
     name: string,
+    readonly: bool,
 ) {
+    readonly := readonly || .Readonly in tag.flags
     inputs := &panel_pool.inputs
     groups := &panel_pool.groups
 
@@ -182,16 +194,16 @@ create_panel_recurse_struct_fields :: proc(
                 type := info.types[i]
                 offset := info.offsets[i]
 
-                create_panel_recurse_struct_fields(s, o + offset, parsed, type, panel_pool, &new_parent, GroupIndex(i), info.names[i])
+                create_panel_recurse_struct_fields(s, o + offset, parsed, type, panel_pool, &new_parent, GroupIndex(i), info.names[i], readonly)
             }
         case rn.Type_Info_Pointer:
             ptr_ptr := cast(^rawptr)(cast(uintptr)s+o)
             if .Empty not_in tag.flags && ptr_ptr^ != nil {
-                create_panel_recurse_struct_fields(ptr_ptr^, 0, tag, info.elem, panel_pool, parent, parent_idx, name)
+                create_panel_recurse_struct_fields(ptr_ptr^, 0, tag, info.elem, panel_pool, parent, parent_idx, name, readonly)
             }
         case rn.Type_Info_Named:
             if .Empty not_in tag.flags {
-                create_panel_recurse_struct_fields(s, o, tag, info.base, panel_pool, parent, parent_idx, name)
+                create_panel_recurse_struct_fields(s, o, tag, info.base, panel_pool, parent, parent_idx, name, readonly)
             }
 
             //if info.name == "EditableSlice" {
@@ -211,7 +223,7 @@ create_panel_recurse_struct_fields :: proc(
             new_parent := groups[new_size]
 
             for i in 0..<info.count {
-                create_panel_recurse_struct_fields(s, o + uintptr(info.elem_size*i), tag, info.elem, panel_pool, &new_parent, GroupIndex(i), "")
+                create_panel_recurse_struct_fields(s, o + uintptr(info.elem_size*i), tag, info.elem, panel_pool, &new_parent, GroupIndex(i), "", readonly)
             } 
         case rn.Type_Info_Integer:
             assert(info.endianness == .Platform)
@@ -227,7 +239,8 @@ create_panel_recurse_struct_fields :: proc(
                         placeholder = tag.placeholder,
                         min = u8(tag.min),
                         max = tag.max == 0 ? max(u8) : u8(tag.max),
-                        current = cast(^u8)(cast(uintptr)s+o)
+                        current = cast(^u8)(cast(uintptr)s+o),
+                        readonly = readonly,
                     })
                 case ti.size == 4 && !info.signed:
                     append(inputs, NumberInput(u32) {
@@ -235,7 +248,8 @@ create_panel_recurse_struct_fields :: proc(
                         placeholder = tag.placeholder,
                         min = u32(tag.min),
                         max = tag.min == 0 ? max(u32) : u32(tag.max),
-                        current = cast(^u32)(cast(uintptr)s+o)
+                        current = cast(^u32)(cast(uintptr)s+o),
+                        readonly = readonly,
                     })
                 case ti.size == 4 && info.signed:
                     append(inputs, NumberInput(i32) {
@@ -243,7 +257,8 @@ create_panel_recurse_struct_fields :: proc(
                         placeholder = tag.placeholder,
                         min = i32(tag.min),
                         max = tag.max == 0 ? max(i32) : i32(tag.max),
-                        current = cast(^i32)(cast(uintptr)s+o)
+                        current = cast(^i32)(cast(uintptr)s+o),
+                        readonly = readonly,
                     })
                 case ti.size == 8 && !info.signed:
                     append(inputs, NumberInput(u64) {
@@ -251,7 +266,8 @@ create_panel_recurse_struct_fields :: proc(
                         placeholder = tag.placeholder,
                         min = u64(tag.min),
                         max = tag.max == 0 ? max(u64) : u64(tag.max),
-                        current = cast(^u64)(cast(uintptr)s+o)
+                        current = cast(^u64)(cast(uintptr)s+o),
+                        readonly = readonly,
                     })
                 case:
                     unimplemented()
@@ -279,7 +295,8 @@ create_panel_recurse_struct_fields :: proc(
                         placeholder = tag.placeholder,
                         min = f32(tag.min),
                         max = f32(tag.max),
-                        current = cast(^f32)(cast(uintptr)s+o)
+                        current = cast(^f32)(cast(uintptr)s+o),
+                        readonly = readonly,
                     })
                 case ti.size == 8:
                     append(inputs, NumberInput(f64) {
@@ -287,7 +304,8 @@ create_panel_recurse_struct_fields :: proc(
                         placeholder = tag.placeholder,
                         min = f64(tag.min),
                         max = f64(tag.max),
-                        current = cast(^f64)(cast(uintptr)s+o)
+                        current = cast(^f64)(cast(uintptr)s+o),
+                        readonly = readonly,
                     })
                 case:
                     unimplemented()
@@ -314,24 +332,28 @@ create_panel_recurse_struct_fields :: proc(
                             current = cast(^u8)(cast(uintptr)s+o),
                             enum_names = info.names,
                             enum_values = info.values,
+                            readonly = readonly,
                         })
                     case 2:
                         append(inputs, Dropdown(u8) {
                             current = cast(^u8)(cast(uintptr)s+o),
                             enum_names = info.names,
                             enum_values = info.values,
+                            readonly = readonly,
                         })
                     case 4:
                         append(inputs, Dropdown(u32) {
                             current = cast(^u32)(cast(uintptr)s+o),
                             enum_names = info.names,
                             enum_values = info.values,
+                            readonly = readonly,
                         })
                     case 8:
                         append(inputs, Dropdown(u64) {
                             current = cast(^u64)(cast(uintptr)s+o),
                             enum_names = info.names,
                             enum_values = info.values,
+                            readonly = readonly,
                         })
                     case:
                         unimplemented()
@@ -351,7 +373,8 @@ create_panel_recurse_struct_fields :: proc(
         case rn.Type_Info_Boolean:
             if .Toggle in tag.flags {
                 append(inputs, Toggle {
-                    current = cast(^bool)(cast(uintptr)s+o)
+                    current = cast(^bool)(cast(uintptr)s+o),
+                    readonly = readonly,
                 })
 
                 append(groups, Group {
@@ -366,6 +389,7 @@ create_panel_recurse_struct_fields :: proc(
             append(inputs, TextInputString {
                 placeholder = tag.placeholder,
                 text = cast(^string)(cast(uintptr)s+o),
+                readonly = readonly,
             })
 
             append(groups, Group {
@@ -399,6 +423,7 @@ create_panel_recurse_struct_fields :: proc(
                         enum_names = base_enum.names,
                         lower = u32(info.lower),
                         upper = u32(info.upper),
+                        readonly = readonly,
                     })
                 }
 
@@ -452,7 +477,7 @@ create_panel :: proc(p: ^PanelPool, s: ^$T, name: string) -> GroupIndex {
     groups_len := len(p.groups)
 
     tag := ParsedTag {}
-    create_panel_recurse_struct_fields(s, 0, tag, ti, p, &false_root, 0, name)
+    create_panel_recurse_struct_fields(s, 0, tag, ti, p, &false_root, 0, name, false)
 
     //fmt.println(p.groups)
     //fmt.println(p.inputs)
@@ -479,7 +504,7 @@ ExampleDropdown :: enum {
 main :: proc() {
     ExampleSubstruct :: struct {
         button: bool "toggle",
-        number: i32 "text placeholder(hi)",
+        number: i32 "readonly text placeholder(hi)",
         hidden: bool,
         vec: [2]f32 "text min(0) max(10.5)"
     }
@@ -495,7 +520,7 @@ main :: proc() {
         //range: f32 "slider min(-1.5) max(10)",
         //text: string "text placeholder(name)",
         //uni: ExampleDropdown "dropdown",
-        //sub: ExampleSubstruct,
+        sub: ExampleSubstruct "group readonly",
         theme: EditorUITheme "group",
     }
 

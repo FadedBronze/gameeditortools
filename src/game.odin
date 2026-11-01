@@ -109,7 +109,7 @@ Drag :: union {
 // loaded at start but is modified at runtime -- currently not loaded though
 LevelAndReplayFile :: struct {
     random_seed: u32 "text",
-    grid: Grid(Tile) "group",
+    grid: Grid(Tile) "readonly group",
     base_entities: []Entity,
     grid_physics: PhysicsSurface "group",
     linegrid: RectangleLineGrid "group",

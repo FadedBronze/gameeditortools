@@ -429,7 +429,8 @@ render_multi_dropdown_input :: proc(
         text_render_info, 
         allocator,
         frame_allocator,
-        within
+        within,
+        dropdown_input.readonly,
     )
 
     if focus {
@@ -535,7 +536,7 @@ render_custom_widget :: proc(
             }
         case ed.TextInputString:
             active := editorui.custom_is_input(editor_ui.active_id, input_index)
-            text_input := editorui.TextInput {}
+            text_input := editorui.TextInput {} 
 
             focus, commit := render_text_input(
                 &text_input,
@@ -545,7 +546,8 @@ render_custom_widget :: proc(
                 editor_ui.render_infos.text, 
                 allocator,
                 frame_allocator,
-                within
+                within,
+                input_data.readonly
             )
 
             if focus {
@@ -595,6 +597,7 @@ render_text_input :: proc(
     frame_allocator: mem.Allocator,
 
     within: bool,
+    readonly: bool,
 ) -> (focus: bool, commit: bool) {
     mouse_within := ut.position_within_bounds(auto_cast rl.GetMousePosition(), auto_cast bounding_box)
     rl.DrawRectangleRec(transmute(rl.Rectangle)bounding_box, auto_cast render_info.back_color)
@@ -606,22 +609,24 @@ render_text_input :: proc(
 
     if mouse_within && within && rl.IsMouseButtonPressed(.LEFT) {
         // TODO: decide how this gets freed properly
-        new_active_data := editorui.TextInput{
-            buf = make([]u8, 32),
-            buf_len = 1,
+        if !readonly {
+            new_active_data := editorui.TextInput{
+                buf = make([]u8, 32),
+                buf_len = 1,
+            }
+
+            prev_str := text
+
+            copy_from_string(new_active_data.buf, prev_str)
+            new_active_data.buf_len = u8(len(prev_str))
+
+            if new_active_data.buf_len == 0 || new_active_data.buf[new_active_data.buf_len-1] != '\x00' {
+                new_active_data.buf[new_active_data.buf_len] = '\x00'
+                new_active_data.buf_len += 1
+            }
+
+            active_data^ = new_active_data
         }
-
-        prev_str := text
-
-        copy_from_string(new_active_data.buf, prev_str)
-        new_active_data.buf_len = u8(len(prev_str))
-
-        if new_active_data.buf_len == 0 || new_active_data.buf[new_active_data.buf_len-1] != '\x00' {
-            new_active_data.buf[new_active_data.buf_len] = '\x00'
-            new_active_data.buf_len += 1
-        }
-
-        active_data^ = new_active_data
         focus = true
     }
 
@@ -629,7 +634,7 @@ render_text_input :: proc(
     // - retrigger delete on backspace hold
     // - proper caret position
     // - undo/(redo??)
-    if active {
+    if active && !readonly {
         ctrl := rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL)
 
         if !ctrl {
@@ -685,7 +690,7 @@ render_text_input :: proc(
     render_string: cstring
     text_color: ut.Color
 
-    if active {
+    if active && !readonly {
         text_cstring := strings.clone_to_cstring(string(active_data.buf[:active_data.buf_len]), frame_allocator)
         render_string = text_cstring
         text_color = render_info.text_color
@@ -702,7 +707,7 @@ render_text_input :: proc(
     font := get_font(&font_table, 0, u16(render_info.font_size))
     text_width: i32 = auto_cast rl.MeasureTextEx(font, render_string, f32(render_info.font_size), f32(render_info.letter_spacing)).x
 
-    if active {
+    if active && !readonly {
         rl.DrawRectangle(
             i32(padding+bounding_box.x)+text_width, 
             i32(bounding_box.y+padding), 
@@ -901,6 +906,7 @@ render_number_input :: proc(
                 allocator,
                 frame_allocator,
                 within,
+                number_input.readonly,
             )
 
             if focus {
@@ -909,19 +915,23 @@ render_number_input :: proc(
             }
 
             if commit {
-                commit_string := transmute(string)text_input.buf[0:text_input.buf_len]
-
                 editor_ui.active_id = editorui.custom_input_id(max(ed.InputIndex))
 
-                parse_str := commit_string
-                if commit_string[len(commit_string)-1] == '\x00' {
-                    parse_str = commit_string[:len(commit_string)-1]
-                }
+                if !number_input.readonly {
+                    commit_string := transmute(string)text_input.buf[0:text_input.buf_len]
 
-                val, ok := parse_number(T, parse_str)
+                    editor_ui.active_id = editorui.custom_input_id(max(ed.InputIndex))
 
-                if ok {
-                    number_input.current^ = val
+                    parse_str := commit_string
+                    if commit_string[len(commit_string)-1] == '\x00' {
+                        parse_str = commit_string[:len(commit_string)-1]
+                    }
+
+                    val, ok := parse_number(T, parse_str)
+
+                    if ok {
+                        number_input.current^ = val
+                    }
                 }
             }
     }
