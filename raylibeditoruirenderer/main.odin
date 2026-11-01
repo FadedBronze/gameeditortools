@@ -939,6 +939,7 @@ draw_editor_immediate_from_layout :: proc(
     clay.SetCurrentContext(params.editor_ui.editor_context)
     clay.SetPointerState(mouse_position, mouse_down)
     clay.SetLayoutDimensions({auto_cast rl.GetScreenWidth(), auto_cast rl.GetScreenHeight()})
+    clay.UpdateScrollContainers(false, rl.GetMouseWheelMoveV()*10, rl.GetFrameTime())
 
     layout := params.layout_fn(params.editor_ui, params.appdata, params.dt)
     

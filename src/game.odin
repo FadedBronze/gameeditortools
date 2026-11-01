@@ -23,11 +23,10 @@ Direction :: enum u8 {
 
 Entity :: struct {
     flags: bit_set[enum {Something, Physics, DrawHitbox}] "dropdown",
-    velocity: la.Vector2f64,
-
-    physics_surface: PhysicsSurface,
-    hitbox: ut.Bounds(f64),
-    transform: ut.Transform(f64),
+    velocity: la.Vector2f64 "text",
+    physics_surface: PhysicsSurface "group",
+    hitbox: ut.Bounds(f64) "group",
+    transform: ut.Transform(f64) "group",
     sprite: FirstGameSheetId "dropdown",
 }
 
@@ -69,7 +68,8 @@ Views :: enum {
 EditorSettings :: struct {
     open_views: bit_set[Views] "dropdown",
     selected_tile: Tile "group",
-    //placing_entity: Entity "group",
+    placing_entity: Entity "group",
+    selected_entity: Entity "group",
     flags: bit_set[enum {
         ShowGridOuterBounds,
         EntityPlaceSnapGrid,
@@ -99,12 +99,11 @@ Drag :: union {
 
 // loaded at start but is modified at runtime -- currently not loaded though
 LevelAndReplayFile :: struct {
-    random_seed: u32,
-    grid: Grid(Tile),
-    entities: []Entity,
-    entities_count: u32, // zero corresponds to null
-    grid_physics: PhysicsSurface,
-    linegrid: RectangleLineGrid,
+    random_seed: u32 "text",
+    grid: Grid(Tile) "group",
+    base_entities: []Entity,
+    grid_physics: PhysicsSurface "group",
+    linegrid: RectangleLineGrid "group",
     computed_simplified_collision_hitboxes: []ut.Bounds(f64), // greedy meshed hitboxes
 }
 
@@ -112,8 +111,10 @@ ConfigFiles :: struct {
     editor_settings: ^EditorSettings,
 }
 
-save_replay_data_to_disk :: proc(b: VersionedFile(LevelAndReplayFile), level: string, frame_allocator: mem.Allocator) -> bool {
-    data, err_marshall := cbor.marshal_into_bytes(b, allocator=frame_allocator, temp_allocator=frame_allocator)
+save_replay_data_to_disk :: proc(appdata: ^AppData, level: string, frame_allocator: mem.Allocator) -> bool {
+    replay: VersionedFile(LevelAndReplayFile) = appdata.level_data
+    replay.data.base_entities = appdata.entities[0:appdata.entities_count]
+    data, err_marshall := cbor.marshal_into_bytes(replay, allocator=frame_allocator, temp_allocator=frame_allocator)
     if err_marshall != nil {
         fmt.println("failed to marshal data", err_marshall)
         return false
@@ -128,17 +129,42 @@ save_replay_data_to_disk :: proc(b: VersionedFile(LevelAndReplayFile), level: st
     return true
 }
 
-load_replay_data_from_disk :: proc(b: ^VersionedFile(LevelAndReplayFile), level: string, frame_allocator: mem.Allocator, init_allocator: mem.Allocator) -> bool {
+load_replay_data_from_disk :: proc(appdata: ^AppData, level: string, frame_allocator: mem.Allocator, init_allocator: mem.Allocator) -> bool {
     data, err := os.read_entire_file_from_path(strings.concatenate({"./leveldata/", level}, allocator=frame_allocator), frame_allocator)
     if err != nil {
         fmt.println("failed to load level", level, "from disk")
         return false
     }
-    err_marshall := cbor.unmarshal_from_bytes(data, b, allocator=init_allocator)
+    replay: VersionedFile(LevelAndReplayFile)
+    err_marshall := cbor.unmarshal_from_bytes(data, &replay, allocator=init_allocator)
     if err_marshall != nil {
         fmt.println("failed to unmarshal data", err_marshall)
         return false
     }
+
+    appdata.entities = make([]Entity, MAX_ENTITIES)
+    appdata.entities_count = u32(len(replay.data.base_entities))
+    copy(appdata.entities, replay.data.base_entities)
+
+    appdata.level_data = replay
+
+    if len(appdata.replay.grid.tiles) == 0 {
+        resize_grid(&appdata.grid, ut.Bounds(i32) {
+            x = -10,
+            y = -10,
+            width = 20,
+            height = 20,
+        }, init_allocator)
+    }
+
+    if appdata.linegrid.width == 0 {
+        appdata.linegrid = RectangleLineGrid {
+            width = 1,
+            height = 1,
+            transform = ut.TRANSFORM_IDENTITY_F64,
+        }
+    }
+
     fmt.println("data loaded successfully")
     return true
 }
@@ -187,9 +213,6 @@ AppData :: struct {
     sim_time: f32, // seconds since simulation start marks ability activation boundraries
 
     control: struct {
-        info: struct {
-            entities: ^u32 "text",
-        } "group",
         actions: Actions "dropdown",
         load_level: enum {
             DefaultLevel,
@@ -205,6 +228,10 @@ AppData :: struct {
 
     // not used for game viewport splitting just for editor vs game view for now
     viewports: [2]WorldViewport2D,
+
+    // entities loaded into here from replay because cbor will marshall the empty space aswell
+    entities: []Entity,
+    entities_count: u32,
 
     // memory
     frame_buffer: []u8,
@@ -232,8 +259,8 @@ AppData :: struct {
 // TODO will have to redo the greedy mesher to support varying properties on different tiles
 // OR apply different properties to different tiles sharing the same body (which I am leaning towards)
 PhysicsSurface :: struct {
-    restitution: f64,
-    friction: f64,
+    restitution: f64 "text",
+    friction: f64 "text",
 }
 
 update :: proc(appdata: ^AppData, delta_time: f32) {
@@ -318,7 +345,7 @@ update :: proc(appdata: ^AppData, delta_time: f32) {
     }
     
     if .LoadDataFromDisk in appdata.control.actions {
-        load_replay_data_from_disk(&appdata.level_data, "default", mem.arena_allocator(&appdata.frame_allocator), mem.arena_allocator(&appdata.init_allocator))
+        load_replay_data_from_disk(appdata, "default", mem.arena_allocator(&appdata.frame_allocator), mem.arena_allocator(&appdata.init_allocator))
 
         if appdata.level_data.version != LEVEL_REPLAY_FILE_VERSION {
             fmt.println("WARNING: level data version mismatch")
@@ -338,6 +365,25 @@ update :: proc(appdata: ^AppData, delta_time: f32) {
     mem.arena_free_all(&appdata.frame_allocator)
 }
 
+find_closest_entity_within_distance :: proc(appdata: ^AppData, world_position: la.Vector2f64, distance: f64) -> ^Entity {
+    smallest_distance: f64 = distance
+    closest_entity: ^Entity = nil
+
+    for i in 0..<appdata.entities_count {
+        entity := &appdata.entities[i]
+
+        if .Something in entity.flags {
+            d := la.length(entity.transform.offset - world_position)
+            if d < smallest_distance {
+                smallest_distance = d
+                closest_entity = entity
+            }
+        }
+    }
+
+    return closest_entity
+}
+
 place_entity :: proc(appdata: ^AppData, viewport_id: editorui.ViewportIndex, allocator: mem.Allocator) {
     viewport := &appdata.viewports[viewport_id]
     tile_grid := &appdata.linegrid
@@ -347,16 +393,18 @@ place_entity :: proc(appdata: ^AppData, viewport_id: editorui.ViewportIndex, all
     within := ut.position_within_bounds(la.Vector2f64{f64(mouse_pos.x), f64(mouse_pos.y)}, viewport.screen_rect)
     world_mouse_pos := screen_to_world_space(viewport^, auto_cast mouse_pos)
     
+    // snapping stuff thinggy
     tilegrid_position := world_to_tile_pos(world_mouse_pos, appdata.linegrid)
-
-    // snapping stuf thinggy
 
     if rl.IsMouseButtonPressed(.LEFT) && within {
         if rl.IsKeyDown(.LEFT_SHIFT) {
-            fmt.println(get_tile(appdata.grid, tilegrid_position), tilegrid_position)
+            entity := find_closest_entity_within_distance(appdata, world_mouse_pos, 0.2)
+            appdata.editor_settings.selected_entity = entity^
+            fmt.println("found")
+            fmt.println(entity)
         } else {
-            appdata.active_tile = tilegrid_position
-            create_tile(appdata, tilegrid_position)
+            en := create_entity(appdata, appdata.editor_settings.placing_entity)
+            en.transform.offset = world_mouse_pos
         }
     }
 }
@@ -539,9 +587,11 @@ spawn_land_borders :: proc(appdata: ^AppData) {
     }
 }
 
-create_entity :: proc(appdata: ^AppData, entity: Entity) {
+create_entity :: proc(appdata: ^AppData, entity: Entity) -> ^Entity {
+    fmt.println(appdata.entities_count)
     appdata.entities[appdata.entities_count] = entity
     appdata.entities_count += 1
+    return &appdata.entities[appdata.entities_count-1]
 }
 
 base_theme := editorui.EditorUITheme {
@@ -551,6 +601,8 @@ base_theme := editorui.EditorUITheme {
     background_color = ut.BLACK,
     highlight_color = ut.Color {255, 0, 0, 255}
 }
+
+entity_stub := Entity {}
 
 init_app :: proc(appdata: ^AppData, allocator: mem.Allocator) {
     // memory
@@ -567,9 +619,6 @@ init_app :: proc(appdata: ^AppData, allocator: mem.Allocator) {
     game_ui_context := clay.Initialize(arena, {1080, 720}, { handler = error_handler })
     appdata.ui_context = game_ui_context
     
-    appdata.entities = make([]Entity, MAX_ENTITIES)
-    appdata.entities_count = 0
-    
     // camera
     appdata.viewports = {
         WorldViewport2D {
@@ -583,32 +632,12 @@ init_app :: proc(appdata: ^AppData, allocator: mem.Allocator) {
     }
 
     // ===== game initialization =====
-    appdata.linegrid = RectangleLineGrid {
-        width = 1,
-        height = 1,
-        transform = ut.TRANSFORM_IDENTITY_F64,
-    }
-
-    appdata.grid_physics = PhysicsSurface {
-        friction = 0.6,
-        restitution = 0.3,
-    }
-
     appdata.sprite_sheet = create_first_game_sheet()
-
-    resize_grid(&appdata.grid, ut.Bounds(i32){
-        x = -8,
-        y = -20,
-        width = 16,
-        height = 80,
-    }, mem.arena_allocator(&appdata.init_allocator))
 
     //spawn_land_borders(appdata)
     
     // hitboxes
     appdata.control.actions += { .LoadDataFromDisk }
-
-    appdata.control.info.entities = &appdata.entities_count
 
     // ===== editor ui
     load_config_file_from_disk(
@@ -630,6 +659,8 @@ init_app :: proc(appdata: ^AppData, allocator: mem.Allocator) {
         mem.arena_allocator(&appdata.frame_allocator), 
         mem.arena_allocator(&appdata.init_allocator)
     )
+
+    appdata.editor_settings.selected_entity = entity_stub
     
     rn.init_font_table(&rn.font_table, context.allocator)
 }
@@ -645,12 +676,12 @@ config_file_paths: [ConfigFileNames]string = {
 }
 
 VersionedFile :: struct(T: typeid) {
-    version: u32,
-    data: T,
+    version: u32 "text",
+    data: T "group",
 }
 
-LEVEL_REPLAY_FILE_VERSION :: 1
-EDITOR_SETTINGS_VERSION :: 0
+LEVEL_REPLAY_FILE_VERSION :: 2
+EDITOR_SETTINGS_VERSION :: 1
 THEME_SETTINGS_VERSION :: 0
 
 exit_app :: proc(appdata: ^AppData) { 
@@ -661,31 +692,31 @@ exit_app :: proc(appdata: ^AppData) {
         }
 
         //if appdata.level_data.version == LEVEL_REPLAY_FILE_VERSION {
-        save_replay_data_to_disk(level_data, "default", mem.arena_allocator(&appdata.frame_allocator))
+        save_replay_data_to_disk(appdata, "default", mem.arena_allocator(&appdata.frame_allocator))
         //} else {
         //    fmt.eprintln("WARNING: write updates file version")
         //}
     }    
 
     if .SaveAllConfigsOnExit in appdata.control.actions {
-        if appdata.theme_config_data.version == THEME_SETTINGS_VERSION {
+        //if appdata.theme_config_data.version == THEME_SETTINGS_VERSION {
             save_config_data_to_disk(
                 appdata.theme_config_data, 
                 "theme_settings", 
                 mem.arena_allocator(&appdata.frame_allocator), 
             )
-        } else {
-            fmt.eprintln("WARNING: write updates file version")
-        }
+        //} else {
+        //    fmt.eprintln("WARNING: write updates file version")
+        //}
 
-        if appdata.editor_config_data.version == EDITOR_SETTINGS_VERSION {
+        //if appdata.editor_config_data.version == EDITOR_SETTINGS_VERSION {
             save_config_data_to_disk(
                 appdata.editor_config_data, 
                 "editor_settings", 
                 mem.arena_allocator(&appdata.frame_allocator), 
             ) 
-        } else {
-            fmt.eprintln("WARNING: write updates file version")
-        }
+        //} else {
+        //    fmt.eprintln("WARNING: write updates file version")
+        //}
     }
 }

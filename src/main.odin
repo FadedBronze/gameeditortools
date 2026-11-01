@@ -39,11 +39,15 @@ create_layout :: proc(
                     layoutDirection = .TopToBottom,
                     childGap = 5,
                 }, 
+                clip = { vertical = true,
+                    childOffset = clay.GetScrollOffset(),
+                },
                 backgroundColor = ut.color_to_f32list(bg),
             }) {
                 label := "Editor Settings"
                 editorui.render_structure_panel(editor_ui, label, &appdata.editor_settings, label)
                 editorui.render_structure_panel(editor_ui, "Actions", &appdata.control, "Actions")
+                editorui.render_structure_panel(editor_ui, "Level Data", &appdata.level_data, "Level Data")
 
                 if .WorldViewports in appdata.editor_settings.open_views {
                     lables := []string{
@@ -106,6 +110,9 @@ create_layout :: proc(
                     layoutDirection = .TopToBottom
                 }, 
                 backgroundColor = ut.color_to_f32list(bg),
+                clip = { vertical = true,
+                    childOffset = clay.GetScrollOffset(),
+                },
             }) {
                 //if clay.UI()({ 
                 //    layout = { 
