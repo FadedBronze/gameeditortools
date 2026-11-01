@@ -11,6 +11,70 @@ import "core:strings"
 import "base:runtime"
 import "core:fmt"
 
+super_panel :: proc(
+    editor_ui: ^editorui.EditorUI, 
+    appdata: ^AppData,
+    placement: EditorPlacement,
+) {
+    if view_placements[.EditorSet] == placement {
+        label := "Editor Settings"
+        editorui.render_structure_panel(editor_ui, label, &appdata.editor_settings, label)
+    }
+
+    if .NewWorldBounds in appdata.editor_settings.open_views && view_placements[.NewWorldBounds] == placement {
+        editorui.render_structure_panel(editor_ui, "New World Bounds", &appdata.new_bounds, "New World Bounds")
+    }
+
+    if .Actions in appdata.editor_settings.open_views && view_placements[.Actions] == placement {
+        editorui.render_structure_panel(editor_ui, "Actions", &appdata.control, "Actions")
+    }
+
+    if .LevelData in appdata.editor_settings.open_views && view_placements[.LevelData] == placement {
+        editorui.render_structure_panel(editor_ui, "Level Data", &appdata.level_data, "Level Data")
+    }
+
+    if .WorldViewports in appdata.editor_settings.open_views && view_placements[.WorldViewports] == placement {
+        lables := []string{
+            "Viewport 1",
+            "Viewport 2",
+        }
+        for i in 0..<2 {
+            viewport := &appdata.viewports[i]
+            label := lables[i]
+            editorui.render_structure_panel(editor_ui, label, &viewport, label)
+        }
+    }
+
+    if .TileEditor in appdata.editor_settings.open_views && view_placements[.TileEditor] == placement {
+        label := "TileEditor"
+        editorui.render_structure_panel(editor_ui, label, &appdata.linegrid, label)
+
+        editorui.render_structure_panel(editor_ui, label, &appdata.editor_settings.selected_tile, label)
+    }
+    
+    if .Entities in appdata.editor_settings.open_views && view_placements[.Entities] == placement {
+        editorui.render_structure_panel(editor_ui, "Selected Entity", &appdata.editor_settings.selected_entity, "Selected Entity")
+        editorui.render_structure_panel(editor_ui, "Placing Entity", &appdata.editor_settings.placing_entity, "Placing Entity")
+
+        for i in 0..<appdata.entities_count {
+            entity := &appdata.entities[i]
+            buf: [32]u8
+            sb := strings.builder_from_bytes(buf[:])
+            label := fmt.sbprintf(&sb, "Entity", i)
+            editorui.render_structure_panel(editor_ui, label, entity, label)
+        }
+    }
+
+    if .ProgramControl in appdata.editor_settings.open_views && view_placements[.ProgramControl] == placement {
+        editorui.render_structure_panel(editor_ui, "Control Panel", &editor_ui.control_panel, "Control Panel")
+    }
+
+    if .ThemeEditor in appdata.editor_settings.open_views && view_placements[.ThemeEditor] == placement {
+        label := "Theme"
+        editorui.render_structure_panel(editor_ui, label, editor_ui.theme, label)
+    }
+}
+
 create_layout :: proc(
     editor_ui: ^editorui.EditorUI, 
     appdata: rawptr,
@@ -44,41 +108,7 @@ create_layout :: proc(
                 },
                 backgroundColor = ut.color_to_f32list(bg),
             }) {
-                label := "Editor Settings"
-                editorui.render_structure_panel(editor_ui, label, &appdata.editor_settings, label)
-                editorui.render_structure_panel(editor_ui, "New World Bounds", &appdata.new_bounds, "New World Bounds")
-                editorui.render_structure_panel(editor_ui, "Actions", &appdata.control, "Actions")
-                editorui.render_structure_panel(editor_ui, "Level Data", &appdata.level_data, "Level Data")
-
-                if .WorldViewports in appdata.editor_settings.open_views {
-                    lables := []string{
-                        "Viewport 1",
-                        "Viewport 2",
-                    }
-                    for i in 0..<2 {
-                        viewport := &appdata.viewports[i]
-                        label := lables[i]
-                        editorui.render_structure_panel(editor_ui, label, &viewport, label)
-                    }
-                }
-
-                if .TileEditor in appdata.editor_settings.open_views {
-                    label := "TileEditor"
-                    editorui.render_structure_panel(editor_ui, label, &appdata.linegrid, label)
-                }
-                
-                if .State in appdata.editor_settings.open_views {
-                }
-
-                if .Entities in appdata.editor_settings.open_views {
-                    for i in 0..<appdata.entities_count {
-                        entity := &appdata.entities[i]
-                        buf: [32]u8
-                        sb := strings.builder_from_bytes(buf[:])
-                        label := fmt.sbprintf(&sb, "Entity", i)
-                        editorui.render_structure_panel(editor_ui, label, entity, label)
-                    }
-                }
+                super_panel(editor_ui, appdata, .Left)
             }
 
             if clay.UI()({ 
@@ -115,24 +145,7 @@ create_layout :: proc(
                     childOffset = clay.GetScrollOffset(),
                 },
             }) {
-                //if clay.UI()({ 
-                //    layout = { 
-                //        sizing = { width = clay.SizingPercent(1), height = clay.SizingFixed(20) },
-                //        padding = clay.PaddingAll(5),
-                //        childAlignment = clay.ChildAlignment {
-                //            x = .Right,
-                //            y = .Top
-                //        }
-                //    }, 
-                //    backgroundColor = ut.color_to_f32list(ut.change_opacity(ut.WHITE, 50)),
-                //}) {
-                //    editorui.button()
-                //}
-
-                editorui.render_structure_panel(editor_ui, "Control Panel", &editor_ui.control_panel, "Control Panel")
-
-                label := "Theme"
-                editorui.render_structure_panel(editor_ui, label, editor_ui.theme, label)
+                super_panel(editor_ui, appdata, .Right)
             }
         }
     }

@@ -66,19 +66,44 @@ ViewportDrag :: struct {
 
 Views :: enum {
     WorldViewports,    
-    Player,
-    State,
     TileEditor,
     Entities,
+    ThemeEditor,
+    NewWorldBounds,
+    Actions,
+    LevelData,
+    ProgramControl,
+    EditorSet,
+}
+
+EditorPlacement :: enum {
+    Right,
+    Left,
+    InnerRight,
+    Hidden,
+}
+
+// TODO: add to editor settings once enum arrays added to widget generator
+view_placements :: [Views]EditorPlacement {
+    .EditorSet = .Left,
+    .WorldViewports = .Left,
+    .TileEditor = .Left,
+    .Entities = .Left,
+    .LevelData = .Left,
+    .ProgramControl = .Right,
+    .ThemeEditor = .Right,
+    .Actions = .Right,
+    .NewWorldBounds = .Right,
 }
 
 EditorSettings :: struct {
     open_views: bit_set[Views] "dropdown",
-    selected_tile: Tile "group",
-    placing_entity: Entity "group",
+
+    selected_tile: Tile,
+    placing_entity: Entity,
     // staging entity
-    selected_entity: Entity "group",
-    selected_entity_id: u32,
+    selected_entity: Entity,
+    selected_entity_id: u32 "readonly text",
     flags: bit_set[enum {
         EntityPlaceSnapGrid,
     }] "dropdown",
