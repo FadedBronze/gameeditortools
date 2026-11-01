@@ -43,6 +43,7 @@ create_layout :: proc(
             }) {
                 label := "Editor Settings"
                 editorui.render_structure_panel(editor_ui, label, &appdata.editor_settings, label)
+                editorui.render_structure_panel(editor_ui, "Actions", &appdata.control, "Actions")
 
                 if .WorldViewports in appdata.editor_settings.open_views {
                     lables := []string{
@@ -121,7 +122,6 @@ create_layout :: proc(
                 //}
 
                 editorui.render_structure_panel(editor_ui, "Control Panel", &editor_ui.control_panel, "Control Panel")
-                editorui.render_structure_panel(editor_ui, "Actions", &appdata.control, "Actions")
 
                 label := "Theme"
                 editorui.render_structure_panel(editor_ui, label, editor_ui.theme, label)

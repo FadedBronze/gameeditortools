@@ -187,6 +187,9 @@ AppData :: struct {
     sim_time: f32, // seconds since simulation start marks ability activation boundraries
 
     control: struct {
+        info: struct {
+            entities: ^u32 "text",
+        } "group",
         actions: Actions "dropdown",
         load_level: enum {
             DefaultLevel,
@@ -605,21 +608,7 @@ init_app :: proc(appdata: ^AppData, allocator: mem.Allocator) {
     // hitboxes
     appdata.control.actions += { .LoadDataFromDisk }
 
-    for i in 0..<4 {
-        create_entity(appdata, Entity {
-            physics_surface = PhysicsSurface {
-                friction = 0.6,
-                restitution = 0.3,
-            },
-            flags = { .Physics, .DrawHitbox },
-            sprite = .PlayerHappy,
-            hitbox = ut.centered_bounds_from_lh(f64(1.3), 1.3),
-            transform = {
-                offset = {f64(2*i-5), 0},
-                scale = {1, 1}
-            }
-        })
-    }
+    appdata.control.info.entities = &appdata.entities_count
 
     // ===== editor ui
     load_config_file_from_disk(
@@ -671,11 +660,11 @@ exit_app :: proc(appdata: ^AppData) {
             version = LEVEL_REPLAY_FILE_VERSION,
         }
 
-        if appdata.level_data.version == LEVEL_REPLAY_FILE_VERSION {
-            save_replay_data_to_disk(level_data, "default", mem.arena_allocator(&appdata.frame_allocator))
-        } else {
-            fmt.eprintln("WARNING: write updates file version")
-        }
+        //if appdata.level_data.version == LEVEL_REPLAY_FILE_VERSION {
+        save_replay_data_to_disk(level_data, "default", mem.arena_allocator(&appdata.frame_allocator))
+        //} else {
+        //    fmt.eprintln("WARNING: write updates file version")
+        //}
     }    
 
     if .SaveAllConfigsOnExit in appdata.control.actions {
