@@ -22,7 +22,7 @@ Direction :: enum u8 {
 }
 
 Entity :: struct {
-    flags: bit_set[enum {Something, Physics, DrawHitbox}] "dropdown",
+    flags: bit_set[enum {Something, Physics, DrawHitbox, PlayerControl, CameraFollow}] "dropdown",
     velocity: la.Vector2f64 "text",
     physics_surface: PhysicsSurface "group",
     hitbox: ut.Bounds(f64) "group",
@@ -207,6 +207,8 @@ Actions :: bit_set[enum {
     SaveAllConfigsOnExit,
 }]
 
+GAME_VIEWPORT :: 0
+
 AppData :: struct {
     // time
     delta_time: f32,
@@ -220,6 +222,7 @@ AppData :: struct {
     },
 
     // intermediate state
+    camera_follow: CameraFollow,
     drag: Drag,
     ui_context: ^clay.Context,
 
@@ -330,14 +333,16 @@ update :: proc(appdata: ^AppData, delta_time: f32) {
                 }
             }
             
-            if rl.IsKeyDown(.D) {
-                entity.velocity.x = 0.005
-            }
-            if rl.IsKeyDown(.A) {
-                entity.velocity.x = -0.005
-            }
-            if rl.IsKeyPressed(.W) {
-                entity.velocity.y = -0.01
+            if .PlayerControl in entity.flags {
+                if rl.IsKeyDown(.D) {
+                    entity.velocity.x = 0.005
+                }
+                if rl.IsKeyDown(.A) {
+                    entity.velocity.x = -0.005
+                }
+                if rl.IsKeyPressed(.W) {
+                    entity.velocity.y = -0.01
+                }
             }
 
             entity.transform.offset += entity.velocity
@@ -361,6 +366,8 @@ update :: proc(appdata: ^AppData, delta_time: f32) {
 
         appdata.control.actions -= {.RecomputeGridHitboxes}
     }
+
+    appdata.viewports[GAME_VIEWPORT].camera_position = follow_player(&appdata.camera_follow, appdata)
 
     mem.arena_free_all(&appdata.frame_allocator)
 }
@@ -623,11 +630,11 @@ init_app :: proc(appdata: ^AppData, allocator: mem.Allocator) {
     appdata.viewports = {
         WorldViewport2D {
             world_to_screenspace_scale = 20,
-            camera_scale = {1, 1}
+            camera_scale = {1, 1},
         },
         WorldViewport2D {
             world_to_screenspace_scale = 20,
-            camera_scale = {1, 1}
+            camera_scale = {1, 1},
         },
     }
 
