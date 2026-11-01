@@ -11,7 +11,6 @@ import "core:mem"
 import "core:encoding/cbor"
 import "core:os"
 import "core:strings"
-import configen "project:config_generator"
 import rn "project:raylibeditoruirenderer"
 
 Direction :: enum u8 {
@@ -31,8 +30,13 @@ Entity :: struct {
     sprite: FirstGameSheetId "dropdown",
 }
 
+EntityType :: enum {
+    None,
+    CollisionSquare,
+}
+
 Environment :: struct {
-    flags: bit_set[enum { Exists, Blocked }],
+    flags: bit_set[enum { Exists, Blocked }] "dropdown",
     sprite: FirstGameSheetId "dropdown",
 }
 
@@ -63,14 +67,17 @@ Views :: enum {
 
 EditorSettings :: struct {
     open_views: bit_set[Views] "dropdown",
-    selected_tile: Tile,
+    selected_tile: Tile "group",
+    //placing_entity: Entity "group",
     flags: bit_set[enum {
-        ShowGridOuterBounds
+        ShowGridOuterBounds,
+        EntityPlaceSnapGrid,
     }] "dropdown",
     active_tool: enum {
         CameraControl,
         GameTool,
-        TileBrush
+        TileBrush,
+        EntityBrush,
     } "dropdown",
 }
 
@@ -90,16 +97,21 @@ Drag :: union {
 }
 
 // loaded at start but is modified at runtime -- currently not loaded though
-BinaryLoadedData :: struct {
+LevelAndReplayFile :: struct {
+    random_seed: u32,
     grid: Grid(Tile),
+    entities: []Entity,
+    entities_count: u32, // zero corresponds to null
+    grid_physics: PhysicsSurface,
+    computed_simplified_collision_hitboxes: []ut.Bounds(f64), // greedy meshed hitboxes
 }
 
-ConfigLoadedData :: struct {
+ConfigFiles :: struct {
     editor_settings: EditorSettings,
     linegrid: RectangleLineGrid,
 }
 
-save_binary_data_to_disk :: proc(b: BinaryLoadedData, level: string, frame_allocator: mem.Allocator) -> bool {
+save_binary_data_to_disk :: proc(b: VersionedFile(LevelAndReplayFile), level: string, frame_allocator: mem.Allocator) -> bool {
     data, err_marshall := cbor.marshal_into_bytes(b, allocator=frame_allocator, temp_allocator=frame_allocator)
     if err_marshall != nil {
         fmt.println("failed to marshal data", err_marshall)
@@ -114,7 +126,7 @@ save_binary_data_to_disk :: proc(b: BinaryLoadedData, level: string, frame_alloc
     return true
 }
 
-load_binary_data_from_disk :: proc(b: ^BinaryLoadedData, level: string, init_allocator: mem.Allocator) -> bool {
+load_binary_data_from_disk :: proc(b: ^VersionedFile(LevelAndReplayFile), level: string, init_allocator: mem.Allocator) -> bool {
     data, err := os.read_entire_file_from_path(strings.concatenate({"./leveldata/", level}), init_allocator)
     if err != nil {
         fmt.println("failed to load level", level, "from disk")
@@ -132,6 +144,7 @@ load_binary_data_from_disk :: proc(b: ^BinaryLoadedData, level: string, init_all
 Actions :: bit_set[enum {
     LoadDataFromDisk,
     RecomputeGridHitboxes,
+    SaveOnExit,
 }]
 
 AppData :: struct {
@@ -149,15 +162,12 @@ AppData :: struct {
     // intermediate state
     drag: Drag,
     ui_context: ^clay.Context,
-    computed_simplified_collision_hitboxes: []ut.Bounds(f64), // greedy meshed hitboxes
 
     // true state
     active_tile: GridPosition, // hovered tile essentially
 
+    // not used for game viewport splitting just for editor vs game view for now
     viewports: [2]WorldViewport2D,
-    grid_physics: PhysicsSurface,
-    entities: []Entity,
-    entities_count: u32, // zero corresponds to null
 
     // memory
     frame_buffer: []u8,
@@ -166,8 +176,11 @@ AppData :: struct {
     init_allocator: mem.Arena,
 
     // loaded data
-    using config_loaded: ConfigLoadedData,
-    using binary_loaded: BinaryLoadedData,
+    level_data: VersionedFile(LevelAndReplayFile),
+    config_data: VersionedFile(ConfigFiles),
+
+    using config_loaded: ^ConfigFiles,
+    using binary_loaded: ^LevelAndReplayFile,
 
     // assets
     sprite_sheet: SpriteSheet(FirstGameSheetId),
@@ -265,7 +278,7 @@ update :: proc(appdata: ^AppData, delta_time: f32) {
     }
     
     if .LoadDataFromDisk in appdata.control.actions {
-        load_binary_data_from_disk(&appdata.binary_loaded, "1", mem.arena_allocator(&appdata.init_allocator))
+        load_binary_data_from_disk(&appdata.level_data, "1", mem.arena_allocator(&appdata.init_allocator))
 
         appdata.control.actions -= {.LoadDataFromDisk}
         appdata.control.actions += {.RecomputeGridHitboxes}
@@ -279,6 +292,29 @@ update :: proc(appdata: ^AppData, delta_time: f32) {
     }
 
     mem.arena_free_all(&appdata.frame_allocator)
+}
+
+place_entity :: proc(appdata: ^AppData, viewport_id: editorui.ViewportIndex, allocator: mem.Allocator) {
+    viewport := &appdata.viewports[viewport_id]
+    tile_grid := &appdata.linegrid
+    
+    mouse_pos := rl.GetMousePosition()
+    // TODO: needs to be replaced with pointer over from editor since ui may need to go over
+    within := ut.position_within_bounds(la.Vector2f64{f64(mouse_pos.x), f64(mouse_pos.y)}, viewport.screen_rect)
+    world_mouse_pos := screen_to_world_space(viewport^, auto_cast mouse_pos)
+    
+    tilegrid_position := world_to_tile_pos(world_mouse_pos, appdata.linegrid)
+
+    // snapping stuf thinggy
+
+    if rl.IsMouseButtonPressed(.LEFT) && within {
+        if rl.IsKeyDown(.LEFT_SHIFT) {
+            fmt.println(get_tile(appdata.grid, tilegrid_position), tilegrid_position)
+        } else {
+            appdata.active_tile = tilegrid_position
+            create_tile(appdata, tilegrid_position)
+        }
+    }
 }
 
 place_tile :: proc(appdata: ^AppData, viewport_id: editorui.ViewportIndex, allocator: mem.Allocator) {
@@ -405,6 +441,13 @@ render :: proc(appdata: rawptr, screen_rect: ut.Bounds(f32), id: editorui.Viewpo
             place_tile(appdata, id, mem.arena_allocator(&appdata.init_allocator))
         }
         zoom_camera(appdata, id)
+    case .EntityBrush:
+        if rl.IsKeyDown(.LEFT_CONTROL) {
+            drag_camera(appdata, id)
+        } else {
+            place_entity(appdata, id, mem.arena_allocator(&appdata.init_allocator))
+        }
+        zoom_camera(appdata, id)
     case .GameTool:
     }
 
@@ -458,6 +501,9 @@ create_entity :: proc(appdata: ^AppData, entity: Entity) {
 }
 
 init_app :: proc(appdata: ^AppData, allocator: mem.Allocator) {
+    appdata.binary_loaded = &appdata.level_data.data
+    appdata.config_loaded = &appdata.config_data.data
+
     // memory
     appdata.frame_buffer = make([]u8, FRAME_MEMORY_BUFFER_SIZE)
     mem.arena_init(&appdata.frame_allocator, appdata.frame_buffer)
@@ -538,29 +584,43 @@ init_app :: proc(appdata: ^AppData, allocator: mem.Allocator) {
         highlight_color = ut.Color {255, 0, 0, 255}
     }, context.allocator)
     
-    configen.parse_scone_from_file(config_file_paths[.EditorSettings], &appdata.editor_settings)
-    configen.parse_scone_from_file(config_file_paths[.ThemeSettings], &appdata.editor_ui.theme)
-    
-    widget_init(&appdata.editor_ui, &appdata.editor_settings, "Editor Settings")
-    widget_init(&appdata.editor_ui, &appdata.editor_ui.theme, "Theme")
-    widget_init(&appdata.editor_ui, &appdata.linegrid, "Grid")
+    //configen.parse_scone_from_file(config_file_paths[.EditorSettings], &appdata.editor_settings)
+    //configen.parse_scone_from_file(config_file_paths[.ThemeSettings], &appdata.editor_ui.theme)
     
     rn.init_font_table(&rn.font_table, context.allocator)
 }
 
-ConfigFile :: enum {
+ConfigFileNames :: enum {
     EditorSettings,
     ThemeSettings,
 }
 
-config_file_paths: [ConfigFile]string = {
+config_file_paths: [ConfigFileNames]string = {
     .EditorSettings = "./configs/editor_settings.config.odin",
     .ThemeSettings = "./configs/theme_settings.config.odin"
 }
 
+VersionedFile :: struct(T: typeid) {
+    version: u32,
+    last_commit_hash: string,
+    data: T,
+}
+
+save_config_file :: proc(data: ^VersionedFile($T), path: string) {
+    config_file: ConfigFile = {
+    }
+}
+
 exit_app :: proc(appdata: ^AppData) {
-    save_binary_data_to_disk(appdata.binary_loaded, "1", mem.arena_allocator(&appdata.frame_allocator))
+    level_data: VersionedFile(LevelAndReplayFile) = {
+        data = appdata.binary_loaded^,
+        version = 0,
+    }
     
-    configen.output_scone(&appdata.editor_settings, "editor_settings", "configs", "./configs/", "main", "project:src", 4)
-    configen.output_scone(&appdata.editor_ui.theme, "theme_settings", "configs", "./configs/", "edui", "project:editorui", 4)
+    if .SaveOnExit in appdata.control.actions {
+        save_binary_data_to_disk(level_data, "1", mem.arena_allocator(&appdata.frame_allocator))
+    }
+    
+    //configen.output_scone(&appdata.editor_settings, "editor_settings", "configs", "./configs/", "main", "project:src", 4)
+    //configen.output_scone(&appdata.editor_ui.theme, "theme_settings", "configs", "./configs/", "edui", "project:editorui", 4)
 }

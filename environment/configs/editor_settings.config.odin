@@ -11,7 +11,7 @@ import main "project:src"
 
 editor_settings_config: main.EditorSettings = {
     // options = WorldViewports, Player, State, TileEditor, Entities
-    open_views = { .Player, .State, .TileEditor },
+    open_views = {},
     selected_tile = {
         environment = {
             // options = Exists, Blocked
@@ -19,7 +19,37 @@ editor_settings_config: main.EditorSettings = {
             sprite = .ChoosePlus,
         },
     },
-    // options = ShowGridOuterBounds
+    placing_entity = {
+        // options = Something, Physics, DrawHitbox
+        flags = {},
+        velocity = {
+            +0.000000,
+            +0.000000,
+        },
+        physics_surface = {
+            restitution = +0.000000,
+            friction = +0.000000,
+        },
+        hitbox = {
+            x = +0.000000,
+            y = +0.000000,
+            width = +0.000000,
+            height = +0.000000,
+        },
+        transform = {
+            scale = {
+                +0.000000,
+                +0.000000,
+            },
+            offset = {
+                +0.000000,
+                +0.000000,
+            },
+            rotation_rad = +0.000000,
+        },
+        sprite = .ChoosePlus,
+    },
+    // options = ShowGridOuterBounds, EntityPlaceSnapGrid
     flags = {},
     active_tool = .CameraControl,
 }

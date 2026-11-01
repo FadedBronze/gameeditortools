@@ -21,7 +21,6 @@ create_layout :: proc(
 
     bg := ut.change_opacity(ut.get_contrasting_color(editor_ui.theme.background_color), 20)
 
-
     if clay.UI()({ 
         layout = { 
             padding = clay.PaddingAll(16),
@@ -42,7 +41,8 @@ create_layout :: proc(
                 }, 
                 backgroundColor = ut.color_to_f32list(bg),
             }) {
-                widget(editor_ui, &appdata.editor_settings, "Editor Settings", context.temp_allocator)
+                label := "Editor Settings"
+                editorui.render_structure_panel(editor_ui, label, &appdata.editor_settings, label)
 
                 if .WorldViewports in appdata.editor_settings.open_views {
                     lables := []string{
@@ -57,8 +57,8 @@ create_layout :: proc(
                 }
 
                 if .TileEditor in appdata.editor_settings.open_views {
-                    label := "Grid"
-                    widget(editor_ui, &appdata.linegrid, label, context.temp_allocator)
+                    label := "TileEditor"
+                    editorui.render_structure_panel(editor_ui, label, &appdata.linegrid, label)
                 }
                 
                 if .State in appdata.editor_settings.open_views {
@@ -122,7 +122,9 @@ create_layout :: proc(
 
                 editorui.render_structure_panel(editor_ui, "Control Panel", &editor_ui.control_panel, "Control Panel")
                 editorui.render_structure_panel(editor_ui, "Actions", &appdata.control, "Actions")
-                widget(editor_ui, &editor_ui.theme, "Theme", context.temp_allocator)
+
+                label := "Theme"
+                editorui.render_structure_panel(editor_ui, label, &editor_ui.theme, label)
             }
         }
     }
