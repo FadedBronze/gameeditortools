@@ -46,6 +46,7 @@ create_layout :: proc(
             }) {
                 label := "Editor Settings"
                 editorui.render_structure_panel(editor_ui, label, &appdata.editor_settings, label)
+                editorui.render_structure_panel(editor_ui, "New World Bounds", &appdata.new_bounds, "New World Bounds")
                 editorui.render_structure_panel(editor_ui, "Actions", &appdata.control, "Actions")
                 editorui.render_structure_panel(editor_ui, "Level Data", &appdata.level_data, "Level Data")
 
@@ -200,6 +201,7 @@ main :: proc() {
     appdata: AppData
     appdata.replay = &appdata.level_data.data
     appdata.editor_settings = &appdata.editor_config_data.data
+    appdata.viewport_data = &appdata.viewport_config_data.data
     init_app(&appdata, context.allocator)     
 
     irenderer := rn.get_interface()

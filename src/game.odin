@@ -22,7 +22,14 @@ Direction :: enum u8 {
 }
 
 Entity :: struct {
-    flags: bit_set[enum {Something, Physics, DrawHitbox, PlayerControl, CameraFollow}] "dropdown",
+    flags: bit_set[enum {
+        Something, 
+        Physics, 
+        DrawHitbox, 
+        PlayerControl, 
+        CameraFollow,
+        CameraFocus,
+    }] "dropdown",
     velocity: la.Vector2f64 "text",
     physics_surface: PhysicsSurface "group",
     hitbox: ut.Bounds(f64) "group",
@@ -69,12 +76,14 @@ EditorSettings :: struct {
     open_views: bit_set[Views] "dropdown",
     selected_tile: Tile "group",
     placing_entity: Entity "group",
+    // staging entity
     selected_entity: Entity "group",
+    selected_entity_id: u32,
     flags: bit_set[enum {
-        ShowGridOuterBounds,
         EntityPlaceSnapGrid,
     }] "dropdown",
     active_tool: enum {
+        Pointer,
         CameraControl,
         GameTool,
         TileBrush,
@@ -165,6 +174,8 @@ load_replay_data_from_disk :: proc(appdata: ^AppData, level: string, frame_alloc
         }
     }
 
+    appdata.new_bounds = appdata.grid.bounds
+
     fmt.println("data loaded successfully")
     return true
 }
@@ -205,9 +216,16 @@ Actions :: bit_set[enum {
     RecomputeGridHitboxes,
     SaveReplayOnExit,
     SaveAllConfigsOnExit,
+    OverwriteSelectedEntity,
+    ResizeWorldBounds,
 }]
 
-GAME_VIEWPORT :: 0
+ViewportData :: struct {
+    game_viewport: u32,
+
+    // not used for game viewport splitting just for editor vs game view for now
+    viewports: [2]WorldViewport2D,
+}
 
 AppData :: struct {
     // time
@@ -226,11 +244,11 @@ AppData :: struct {
     drag: Drag,
     ui_context: ^clay.Context,
 
+    // if you want to increase or decrease world bounds
+    new_bounds: ut.Bounds(i32) "group",
+
     // true state
     active_tile: GridPosition, // hovered tile essentially
-
-    // not used for game viewport splitting just for editor vs game view for now
-    viewports: [2]WorldViewport2D,
 
     // entities loaded into here from replay because cbor will marshall the empty space aswell
     entities: []Entity,
@@ -247,10 +265,12 @@ AppData :: struct {
     editor_config_data: VersionedFile(EditorSettings),
     // should be moved perhaps idek how to architect this thing
     theme_config_data: VersionedFile(editorui.EditorUITheme),
+    viewport_config_data: VersionedFile(ViewportData),
 
     // references to loaded data
     editor_settings: ^EditorSettings,
     using replay: ^LevelAndReplayFile,
+    using viewport_data: ^ViewportData,
 
     // assets
     sprite_sheet: SpriteSheet(FirstGameSheetId),
@@ -367,14 +387,25 @@ update :: proc(appdata: ^AppData, delta_time: f32) {
         appdata.control.actions -= {.RecomputeGridHitboxes}
     }
 
-    appdata.viewports[GAME_VIEWPORT].camera_position = follow_player(&appdata.camera_follow, appdata)
+    if .OverwriteSelectedEntity in appdata.control.actions {
+        appdata.entities[appdata.editor_settings.selected_entity_id-1] = appdata.editor_settings.selected_entity
+        appdata.control.actions -= { .OverwriteSelectedEntity }
+    }
+
+    if .ResizeWorldBounds in appdata.control.actions {
+        resize_grid(&appdata.grid, appdata.new_bounds, mem.arena_allocator(&appdata.init_allocator))
+        appdata.control.actions -= { .ResizeWorldBounds }
+    }
+
+    appdata.viewports[appdata.game_viewport].camera_position = follow_player(&appdata.camera_follow, appdata, delta_time)
 
     mem.arena_free_all(&appdata.frame_allocator)
 }
 
-find_closest_entity_within_distance :: proc(appdata: ^AppData, world_position: la.Vector2f64, distance: f64) -> ^Entity {
+find_closest_entity_within_distance :: proc(appdata: ^AppData, world_position: la.Vector2f64, distance: f64) -> (u32, ^Entity) {
     smallest_distance: f64 = distance
     closest_entity: ^Entity = nil
+    closest_id: u32 = 0
 
     for i in 0..<appdata.entities_count {
         entity := &appdata.entities[i]
@@ -384,11 +415,12 @@ find_closest_entity_within_distance :: proc(appdata: ^AppData, world_position: l
             if d < smallest_distance {
                 smallest_distance = d
                 closest_entity = entity
+                closest_id = i+1
             }
         }
     }
 
-    return closest_entity
+    return closest_id, closest_entity
 }
 
 place_entity :: proc(appdata: ^AppData, viewport_id: editorui.ViewportIndex, allocator: mem.Allocator) {
@@ -405,10 +437,15 @@ place_entity :: proc(appdata: ^AppData, viewport_id: editorui.ViewportIndex, all
 
     if rl.IsMouseButtonPressed(.LEFT) && within {
         if rl.IsKeyDown(.LEFT_SHIFT) {
-            entity := find_closest_entity_within_distance(appdata, world_mouse_pos, 0.2)
-            appdata.editor_settings.selected_entity = entity^
-            fmt.println("found")
-            fmt.println(entity)
+            id, entity := find_closest_entity_within_distance(appdata, world_mouse_pos, 0.5)
+
+            if entity != nil {
+                appdata.editor_settings.selected_entity = entity^
+                appdata.editor_settings.selected_entity_id = id
+
+                fmt.println("found")
+                fmt.println(entity)
+            }
         } else {
             en := create_entity(appdata, appdata.editor_settings.placing_entity)
             en.transform.offset = world_mouse_pos
@@ -461,7 +498,10 @@ render :: proc(appdata: rawptr, screen_rect: ut.Bounds(f32), id: editorui.Viewpo
 
     rl.DrawRectangleRec(transmute(rl.Rectangle)screen_rect, rl.WHITE)
 
-    render_tile_grid_lines(viewport^, appdata.linegrid)
+
+    if .RenderGrid in viewport.flags {
+        render_tile_grid_lines(viewport^, appdata.linegrid)
+    }
 
     // render tiles
     mat := ut.create_matrix_from_transform(appdata.linegrid.transform) * get_viewport_matrix(viewport^)
@@ -497,27 +537,37 @@ render :: proc(appdata: rawptr, screen_rect: ut.Bounds(f32), id: editorui.Viewpo
                 entity.hitbox
             )
 
+            if .HighlightSelectedEntity in viewport.flags && i+1 == appdata.editor_settings.selected_entity_id {
+                rl.DrawRectangleLinesEx(
+                    transmute(rl.Rectangle)ut.bounds_to_bounds(f32, world_hitbox), 
+                    1.0,
+                    auto_cast ut.BLUE
+                )
+            } else {
+                rl.DrawRectangleLinesEx(
+                    transmute(rl.Rectangle)ut.bounds_to_bounds(f32, world_hitbox), 
+                    1.0,
+                    auto_cast ut.RED
+                )
+            }
+        }
+    }
+
+    // hitboxes
+    if .RenderHitboxes in viewport.flags {
+        for i in 0..<len(appdata.computed_simplified_collision_hitboxes) {
+            box := appdata.computed_simplified_collision_hitboxes[i]
+            box = ut.apply_matrix_to_bounds(viewport_mat, box)
+
             rl.DrawRectangleLinesEx(
-                transmute(rl.Rectangle)ut.bounds_to_bounds(f32, world_hitbox), 
+                transmute(rl.Rectangle)ut.bounds_to_bounds(f32, box), 
                 1.0,
                 auto_cast ut.RED
             )
         }
     }
 
-    // hitboxes
-    for i in 0..<len(appdata.computed_simplified_collision_hitboxes) {
-        box := appdata.computed_simplified_collision_hitboxes[i]
-        box = ut.apply_matrix_to_bounds(viewport_mat, box)
-
-        rl.DrawRectangleLinesEx(
-            transmute(rl.Rectangle)ut.bounds_to_bounds(f32, box), 
-            1.0,
-            auto_cast ut.RED
-        )
-    }
-
-    if .ShowGridOuterBounds in appdata.editor_settings.flags {
+    if .ShowGridOuterBounds in viewport.flags {
         box := ut.bounds_to_bounds(f64, appdata.grid.bounds)
         box = grid_bounds_to_worldspace_bounds(box, appdata.linegrid)
         box = ut.apply_matrix_to_bounds(viewport_mat, box)
@@ -530,6 +580,10 @@ render :: proc(appdata: rawptr, screen_rect: ut.Bounds(f32), id: editorui.Viewpo
     }
 
     switch appdata.editor_settings.active_tool {
+    case .Pointer:
+        drag_camera(appdata, id)
+        zoom_camera(appdata, id)
+        
     case .CameraControl:
         drag_camera(appdata, id)
         zoom_camera(appdata, id)
@@ -546,6 +600,7 @@ render :: proc(appdata: rawptr, screen_rect: ut.Bounds(f32), id: editorui.Viewpo
         } else {
             place_entity(appdata, id, mem.arena_allocator(&appdata.init_allocator))
         }
+        
         zoom_camera(appdata, id)
     case .GameTool:
     }
@@ -626,18 +681,6 @@ init_app :: proc(appdata: ^AppData, allocator: mem.Allocator) {
     game_ui_context := clay.Initialize(arena, {1080, 720}, { handler = error_handler })
     appdata.ui_context = game_ui_context
     
-    // camera
-    appdata.viewports = {
-        WorldViewport2D {
-            world_to_screenspace_scale = 20,
-            camera_scale = {1, 1},
-        },
-        WorldViewport2D {
-            world_to_screenspace_scale = 20,
-            camera_scale = {1, 1},
-        },
-    }
-
     // ===== game initialization =====
     appdata.sprite_sheet = create_first_game_sheet()
 
@@ -666,6 +709,13 @@ init_app :: proc(appdata: ^AppData, allocator: mem.Allocator) {
         mem.arena_allocator(&appdata.frame_allocator), 
         mem.arena_allocator(&appdata.init_allocator)
     )
+    
+    load_config_file_from_disk(
+        &appdata.viewport_config_data, 
+        "viewport_settings", 
+        mem.arena_allocator(&appdata.frame_allocator), 
+        mem.arena_allocator(&appdata.init_allocator)
+    )
 
     appdata.editor_settings.selected_entity = entity_stub
     
@@ -690,6 +740,7 @@ VersionedFile :: struct(T: typeid) {
 LEVEL_REPLAY_FILE_VERSION :: 2
 EDITOR_SETTINGS_VERSION :: 1
 THEME_SETTINGS_VERSION :: 0
+VIEWPORT_SETTINGS_VERSION :: 0
 
 exit_app :: proc(appdata: ^AppData) { 
     if .SaveReplayOnExit in appdata.control.actions {
@@ -725,5 +776,11 @@ exit_app :: proc(appdata: ^AppData) {
         //} else {
         //    fmt.eprintln("WARNING: write updates file version")
         //}
+
+        save_config_data_to_disk(
+            appdata.viewport_config_data, 
+            "viewport_settings", 
+            mem.arena_allocator(&appdata.frame_allocator), 
+        ) 
     }
 }

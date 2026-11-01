@@ -4,7 +4,16 @@ import la "core:math/linalg"
 import rl "vendor:raylib"
 import ut "project:utils"
 
+ViewportFlags :: bit_set[enum {
+    RenderHitboxes,
+    HighlightSelectedEntity,
+    HighlightSelectedTile,
+    ShowGridOuterBounds,
+    RenderGrid,
+}]
+
 WorldViewport2D :: struct {
+    flags: ViewportFlags "dropdown",
     world_to_screenspace_scale: f64 "text", 
     screen_rect: ut.Bounds(f64),
     camera_position: la.Vector2f64 "text",
