@@ -84,7 +84,7 @@ ActiveInfo :: struct {
 }
 
 EditorUI :: struct {
-    theme: EditorUITheme,
+    theme: ^EditorUITheme,
     render_infos: RenderInfos,
 
     // for meta program
@@ -238,7 +238,7 @@ custom_is_input :: proc(custom_id: CustomId, input_index: ed.InputIndex) -> bool
     return custom_id.type == .InputIndex && custom_id.value.input_index == input_index
 }
 
-create_editorui :: proc(theme: EditorUITheme, allocator: mem.Allocator) -> EditorUI {
+create_editorui :: proc(theme: ^EditorUITheme, allocator: mem.Allocator) -> EditorUI {
     min_memory_size := clay.MinMemorySize()
 
     editor_memory := make([^]u8, min_memory_size, allocator)
@@ -247,7 +247,7 @@ create_editorui :: proc(theme: EditorUITheme, allocator: mem.Allocator) -> Edito
     
     return EditorUI {
         panel_pool = ed.create_panel_pool(allocator),
-        render_infos = create_render_infos(theme),
+        render_infos = create_render_infos(theme^),
         ui_groups = make(map[string]ed.InputIndex, allocator),
         panels = make(map[string]ed.GroupIndex, allocator),
         active_id = custom_input_id(max(ed.InputIndex)),
@@ -258,7 +258,7 @@ create_editorui :: proc(theme: EditorUITheme, allocator: mem.Allocator) -> Edito
 
 
 render_structure_panel :: proc(editor_ui: ^EditorUI, id: string, structure: ^$T, label: string, frame_allocator: mem.Allocator = context.temp_allocator) {
-    editor_ui.render_infos = create_render_infos(editor_ui.theme)
+    editor_ui.render_infos = create_render_infos(editor_ui.theme^)
     if panel, ok := editor_ui.panels[id]; ok {
         render_panel_recurse(editor_ui, &editor_ui.panel_pool.groups[panel], frame_allocator)
     } else {

@@ -9,6 +9,7 @@ import "core:math/rand"
 import "core:fmt"
 import "core:mem"
 import "core:encoding/cbor"
+import "core:encoding/json"
 import "core:os"
 import "core:strings"
 import rn "project:raylibeditoruirenderer"
@@ -103,38 +104,70 @@ LevelAndReplayFile :: struct {
     entities: []Entity,
     entities_count: u32, // zero corresponds to null
     grid_physics: PhysicsSurface,
+    linegrid: RectangleLineGrid,
     computed_simplified_collision_hitboxes: []ut.Bounds(f64), // greedy meshed hitboxes
 }
 
 ConfigFiles :: struct {
-    editor_settings: EditorSettings,
-    linegrid: RectangleLineGrid,
+    editor_settings: ^EditorSettings,
 }
 
-save_binary_data_to_disk :: proc(b: VersionedFile(LevelAndReplayFile), level: string, frame_allocator: mem.Allocator) -> bool {
+save_replay_data_to_disk :: proc(b: VersionedFile(LevelAndReplayFile), level: string, frame_allocator: mem.Allocator) -> bool {
     data, err_marshall := cbor.marshal_into_bytes(b, allocator=frame_allocator, temp_allocator=frame_allocator)
     if err_marshall != nil {
         fmt.println("failed to marshal data", err_marshall)
         return false
     }
-    err := os.write_entire_file(strings.concatenate({"./leveldata/", level}, allocator=frame_allocator), data)
+    fullpath := strings.concatenate({"./leveldata/", level}, allocator=frame_allocator)
+    err := os.write_entire_file(fullpath, data)
     if err != nil {
-        fmt.println("failed to save level", level, "to disk")
+        fmt.println("failed to save level", fullpath, "to disk", err)
         return false
     }
     fmt.println("data saved successfully")
     return true
 }
 
-load_binary_data_from_disk :: proc(b: ^VersionedFile(LevelAndReplayFile), level: string, init_allocator: mem.Allocator) -> bool {
-    data, err := os.read_entire_file_from_path(strings.concatenate({"./leveldata/", level}), init_allocator)
+load_replay_data_from_disk :: proc(b: ^VersionedFile(LevelAndReplayFile), level: string, frame_allocator: mem.Allocator, init_allocator: mem.Allocator) -> bool {
+    data, err := os.read_entire_file_from_path(strings.concatenate({"./leveldata/", level}, allocator=frame_allocator), frame_allocator)
     if err != nil {
         fmt.println("failed to load level", level, "from disk")
         return false
     }
-    err_marshall := cbor.unmarshal_from_bytes(data, b)
+    err_marshall := cbor.unmarshal_from_bytes(data, b, allocator=init_allocator)
     if err_marshall != nil {
         fmt.println("failed to unmarshal data", err_marshall)
+        return false
+    }
+    fmt.println("data loaded successfully")
+    return true
+}
+
+save_config_data_to_disk :: proc(b: VersionedFile($T), filename: string, frame_allocator: mem.Allocator) -> bool {
+    data, err_marhshall := json.marshal(b, allocator=frame_allocator)
+    if err_marhshall != nil {
+        fmt.println("failed to marshal JSON", err_marhshall)
+        return false
+    }
+    fullpath := strings.concatenate({"./configs/", filename, ".json"}, allocator=frame_allocator)
+    err := os.write_entire_file(fullpath, data)
+    if err != nil {
+        fmt.println("failed to save config file", fullpath, "to disk", err)
+        return false
+    }
+    fmt.println("saved config", filename)
+    return true
+}
+
+load_config_file_from_disk :: proc(b: ^VersionedFile($T), filename: string, frame_allocator: mem.Allocator, init_allocator: mem.Allocator) -> bool {
+    data, err := os.read_entire_file_from_path(strings.concatenate({"./configs/", filename, ".json"}, allocator=frame_allocator), frame_allocator)
+    if err != nil {
+        fmt.println("failed to load config", filename, "from disk")
+        return false
+    }
+    err_marshall := json.unmarshal(data, b, allocator=init_allocator)
+    if err_marshall != nil {
+        fmt.println("failed to unmarshal JSON", err_marshall)
         return false
     }
     fmt.println("data loaded successfully")
@@ -144,7 +177,8 @@ load_binary_data_from_disk :: proc(b: ^VersionedFile(LevelAndReplayFile), level:
 Actions :: bit_set[enum {
     LoadDataFromDisk,
     RecomputeGridHitboxes,
-    SaveOnExit,
+    SaveReplayOnExit,
+    SaveAllConfigsOnExit,
 }]
 
 AppData :: struct {
@@ -155,7 +189,7 @@ AppData :: struct {
     control: struct {
         actions: Actions "dropdown",
         load_level: enum {
-            Level1,
+            DefaultLevel,
         } "dropdown",
     },
 
@@ -177,10 +211,13 @@ AppData :: struct {
 
     // loaded data
     level_data: VersionedFile(LevelAndReplayFile),
-    config_data: VersionedFile(ConfigFiles),
+    editor_config_data: VersionedFile(EditorSettings),
+    // should be moved perhaps idek how to architect this thing
+    theme_config_data: VersionedFile(editorui.EditorUITheme),
 
-    using config_loaded: ^ConfigFiles,
-    using binary_loaded: ^LevelAndReplayFile,
+    // references to loaded data
+    editor_settings: ^EditorSettings,
+    using replay: ^LevelAndReplayFile,
 
     // assets
     sprite_sheet: SpriteSheet(FirstGameSheetId),
@@ -278,7 +315,11 @@ update :: proc(appdata: ^AppData, delta_time: f32) {
     }
     
     if .LoadDataFromDisk in appdata.control.actions {
-        load_binary_data_from_disk(&appdata.level_data, "1", mem.arena_allocator(&appdata.init_allocator))
+        load_replay_data_from_disk(&appdata.level_data, "default", mem.arena_allocator(&appdata.frame_allocator), mem.arena_allocator(&appdata.init_allocator))
+
+        if appdata.level_data.version != LEVEL_REPLAY_FILE_VERSION {
+            fmt.println("WARNING: level data version mismatch")
+        }
 
         appdata.control.actions -= {.LoadDataFromDisk}
         appdata.control.actions += {.RecomputeGridHitboxes}
@@ -500,10 +541,15 @@ create_entity :: proc(appdata: ^AppData, entity: Entity) {
     appdata.entities_count += 1
 }
 
-init_app :: proc(appdata: ^AppData, allocator: mem.Allocator) {
-    appdata.binary_loaded = &appdata.level_data.data
-    appdata.config_loaded = &appdata.config_data.data
+base_theme := editorui.EditorUITheme {
+    font_size = 16,
+    letter_spacing = 1,
+    text_color = ut.Color {192, 192, 192, 240},
+    background_color = ut.BLACK,
+    highlight_color = ut.Color {255, 0, 0, 255}
+}
 
+init_app :: proc(appdata: ^AppData, allocator: mem.Allocator) {
     // memory
     appdata.frame_buffer = make([]u8, FRAME_MEMORY_BUFFER_SIZE)
     mem.arena_init(&appdata.frame_allocator, appdata.frame_buffer)
@@ -576,16 +622,25 @@ init_app :: proc(appdata: ^AppData, allocator: mem.Allocator) {
     }
 
     // ===== editor ui
-    appdata.editor_ui = editorui.create_editorui(editorui.EditorUITheme {
-        font_size = 16,
-        letter_spacing = 1,
-        text_color = ut.Color {192, 192, 192, 240},
-        background_color = ut.BLACK,
-        highlight_color = ut.Color {255, 0, 0, 255}
-    }, context.allocator)
+    load_config_file_from_disk(
+        &appdata.theme_config_data, 
+        "theme_settings", 
+        mem.arena_allocator(&appdata.frame_allocator), 
+        mem.arena_allocator(&appdata.init_allocator)
+    )
+
+    appdata.editor_ui = editorui.create_editorui(&appdata.theme_config_data.data, context.allocator)
     
-    //configen.parse_scone_from_file(config_file_paths[.EditorSettings], &appdata.editor_settings)
-    //configen.parse_scone_from_file(config_file_paths[.ThemeSettings], &appdata.editor_ui.theme)
+    if appdata.editor_config_data.version != EDITOR_SETTINGS_VERSION {
+        fmt.eprintln("Editor settings version mismatch")
+    }
+    
+    load_config_file_from_disk(
+        &appdata.editor_config_data, 
+        "editor_settings", 
+        mem.arena_allocator(&appdata.frame_allocator), 
+        mem.arena_allocator(&appdata.init_allocator)
+    )
     
     rn.init_font_table(&rn.font_table, context.allocator)
 }
@@ -602,25 +657,46 @@ config_file_paths: [ConfigFileNames]string = {
 
 VersionedFile :: struct(T: typeid) {
     version: u32,
-    last_commit_hash: string,
     data: T,
 }
 
-save_config_file :: proc(data: ^VersionedFile($T), path: string) {
-    config_file: ConfigFile = {
-    }
-}
+LEVEL_REPLAY_FILE_VERSION :: 1
+EDITOR_SETTINGS_VERSION :: 0
+THEME_SETTINGS_VERSION :: 0
 
-exit_app :: proc(appdata: ^AppData) {
-    level_data: VersionedFile(LevelAndReplayFile) = {
-        data = appdata.binary_loaded^,
-        version = 0,
+exit_app :: proc(appdata: ^AppData) { 
+    if .SaveReplayOnExit in appdata.control.actions {
+        level_data: VersionedFile(LevelAndReplayFile) = {
+            data = appdata.replay^,
+            version = LEVEL_REPLAY_FILE_VERSION,
+        }
+
+        if appdata.level_data.version == LEVEL_REPLAY_FILE_VERSION {
+            save_replay_data_to_disk(level_data, "default", mem.arena_allocator(&appdata.frame_allocator))
+        } else {
+            fmt.eprintln("WARNING: write updates file version")
+        }
+    }    
+
+    if .SaveAllConfigsOnExit in appdata.control.actions {
+        if appdata.theme_config_data.version == THEME_SETTINGS_VERSION {
+            save_config_data_to_disk(
+                appdata.theme_config_data, 
+                "theme_settings", 
+                mem.arena_allocator(&appdata.frame_allocator), 
+            )
+        } else {
+            fmt.eprintln("WARNING: write updates file version")
+        }
+
+        if appdata.editor_config_data.version == EDITOR_SETTINGS_VERSION {
+            save_config_data_to_disk(
+                appdata.editor_config_data, 
+                "editor_settings", 
+                mem.arena_allocator(&appdata.frame_allocator), 
+            ) 
+        } else {
+            fmt.eprintln("WARNING: write updates file version")
+        }
     }
-    
-    if .SaveOnExit in appdata.control.actions {
-        save_binary_data_to_disk(level_data, "1", mem.arena_allocator(&appdata.frame_allocator))
-    }
-    
-    //configen.output_scone(&appdata.editor_settings, "editor_settings", "configs", "./configs/", "main", "project:src", 4)
-    //configen.output_scone(&appdata.editor_ui.theme, "theme_settings", "configs", "./configs/", "edui", "project:editorui", 4)
 }

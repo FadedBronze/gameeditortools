@@ -124,7 +124,7 @@ create_layout :: proc(
                 editorui.render_structure_panel(editor_ui, "Actions", &appdata.control, "Actions")
 
                 label := "Theme"
-                editorui.render_structure_panel(editor_ui, label, &editor_ui.theme, label)
+                editorui.render_structure_panel(editor_ui, label, editor_ui.theme, label)
             }
         }
     }
@@ -191,6 +191,8 @@ main :: proc() {
     rl.SetWindowState({.WINDOW_RESIZABLE})
  
     appdata: AppData
+    appdata.replay = &appdata.level_data.data
+    appdata.editor_settings = &appdata.editor_config_data.data
     init_app(&appdata, context.allocator)     
 
     irenderer := rn.get_interface()
