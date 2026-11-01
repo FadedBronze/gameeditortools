@@ -243,6 +243,7 @@ Actions :: bit_set[enum {
     SaveAllConfigsOnExit,
     OverwriteSelectedEntity,
     ResizeWorldBounds,
+    DeleteSelectedEntityID,
 }]
 
 ViewportData :: struct {
@@ -325,6 +326,10 @@ update :: proc(appdata: ^AppData, delta_time: f32) {
     for i in 0..<appdata.entities_count {
         entity := &appdata.entities[i]
 
+        if .Something not_in entity.flags {
+            continue
+        }
+
         if .Physics in entity.flags {
             grid_mat := ut.create_matrix_from_transform(appdata.linegrid.transform)
 
@@ -334,6 +339,11 @@ update :: proc(appdata: ^AppData, delta_time: f32) {
 
             for j in i+1..<appdata.entities_count {
                 entity2 := &appdata.entities[j]
+
+                if .Something not_in entity2.flags {
+                    continue
+                }
+
                 box2 := ut.apply_matrix_to_bounds(ut.create_matrix_from_transform(entity2.transform), entity2.hitbox)
 
                 hit, normal, depth := collide_aabb(box, box2)
@@ -422,6 +432,11 @@ update :: proc(appdata: ^AppData, delta_time: f32) {
         appdata.control.actions -= { .ResizeWorldBounds }
     }
 
+    if .DeleteSelectedEntityID in appdata.control.actions {
+        appdata.entities[appdata.editor_settings.selected_entity_id-1].flags -= { .Something }
+        appdata.control.actions -= { .DeleteSelectedEntityID }
+    }
+
     appdata.viewports[appdata.game_viewport].camera_position = follow_player(&appdata.camera_follow, appdata, delta_time)
 
     mem.arena_free_all(&appdata.frame_allocator)
@@ -464,7 +479,7 @@ place_entity :: proc(appdata: ^AppData, viewport_id: editorui.ViewportIndex, all
         if rl.IsKeyDown(.LEFT_SHIFT) {
             id, entity := find_closest_entity_within_distance(appdata, world_mouse_pos, 0.5)
 
-            if entity != nil {
+            if entity != nil && .Something in entity.flags {
                 appdata.editor_settings.selected_entity = entity^
                 appdata.editor_settings.selected_entity_id = id
 
@@ -555,6 +570,10 @@ render :: proc(appdata: rawptr, screen_rect: ut.Bounds(f32), id: editorui.Viewpo
     viewport_mat := get_viewport_matrix(viewport^)
     for i in 0..<appdata.entities_count {
         entity: ^Entity = &appdata.entities[i]
+
+        if .Something not_in entity.flags {
+            continue
+        }
 
         if .DrawHitbox in entity.flags {
             world_hitbox := ut.apply_matrix_to_bounds(

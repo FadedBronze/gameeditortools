@@ -257,12 +257,12 @@ create_editorui :: proc(theme: ^EditorUITheme, allocator: mem.Allocator) -> Edit
 }
 
 
-render_structure_panel :: proc(editor_ui: ^EditorUI, id: string, structure: ^$T, label: string, frame_allocator: mem.Allocator = context.temp_allocator) {
+render_structure_panel :: proc(editor_ui: ^EditorUI, id: string, structure: ^$T, label: string, init_allocator: mem.Allocator = context.allocator, frame_allocator: mem.Allocator = context.temp_allocator) {
     editor_ui.render_infos = create_render_infos(editor_ui.theme^)
     if panel, ok := editor_ui.panels[id]; ok {
         render_panel_recurse(editor_ui, &editor_ui.panel_pool.groups[panel], frame_allocator)
     } else {
-        panel := ed.create_panel(&editor_ui.panel_pool, structure, label)
+        panel := ed.create_panel(&editor_ui.panel_pool, structure, strings.concatenate({label}, init_allocator))
         editor_ui.panels[id] = panel
         render_panel_recurse(editor_ui, &editor_ui.panel_pool.groups[panel], frame_allocator)
     }

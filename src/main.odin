@@ -58,9 +58,12 @@ super_panel :: proc(
 
         for i in 0..<appdata.entities_count {
             entity := &appdata.entities[i]
+            if .Something not_in entity.flags {
+                continue
+            }
             buf: [32]u8
             sb := strings.builder_from_bytes(buf[:])
-            label := fmt.sbprintf(&sb, "Entity", i)
+            label := fmt.sbprintf(&sb, "Entity ID: %d", i+1)
             editorui.render_structure_panel(editor_ui, label, entity, label)
         }
     }
