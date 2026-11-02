@@ -316,6 +316,7 @@ PhysicsSurface :: struct {
 
 update :: proc(appdata: ^AppData, delta_time: f32) {
     appdata.delta_time = delta_time
+    dt := f64(delta_time)
  
     b := appdata.grid.bounds
 
@@ -335,7 +336,7 @@ update :: proc(appdata: ^AppData, delta_time: f32) {
         if .Physics in entity.flags {
             grid_mat := ut.create_matrix_from_transform(appdata.linegrid.transform)
 
-            entity.velocity += grid_to_world_position({0.0, 0.00981}, appdata.linegrid) * f64(delta_time)
+            entity.velocity += grid_to_world_position({0.0, 9.81}, appdata.linegrid) * f64(delta_time)
             
             box := ut.apply_matrix_to_bounds(ut.create_matrix_from_transform(entity.transform), entity.hitbox)
 
@@ -392,26 +393,26 @@ update :: proc(appdata: ^AppData, delta_time: f32) {
             
             if .PlayerControl in entity.flags {
                 if rl.IsKeyDown(.D) {
-                    if entity.velocity.x < 0.01 {
-                        entity.velocity.x = 0.01
+                    if entity.velocity.x < 10 {
+                        entity.velocity.x = 10
                     }
-                    entity.velocity.x += 0.00005
+                    entity.velocity.x += 5 * dt
                 }
                 if rl.IsKeyDown(.A) {
-                    if entity.velocity.x > -0.01 {
-                        entity.velocity.x = -0.01
+                    if entity.velocity.x > -10 {
+                        entity.velocity.x = -10
                     }
-                    entity.velocity.x += -0.00005
+                    entity.velocity.x += 5 * dt
                 }
                 if rl.IsKeyPressed(.W) {
-                    entity.velocity.y = -0.01
+                    entity.velocity.y = -20
                 }
-                if rl.IsKeyPressed(.S) {
-                    entity.velocity.y = 0.03
+                if rl.IsKeyDown(.S) {
+                    entity.velocity.y += 200 * dt
                 }
             }
 
-            entity.transform.offset += entity.velocity
+            entity.transform.offset += entity.velocity * dt
         }
     }
     
