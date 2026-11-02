@@ -102,6 +102,12 @@ position_within_bounds :: proc(position: [2]$T, bounds: Bounds(T)) -> bool {
     return within_x && within_y
 }
 
+bounds_within_bounds :: proc(container: Bounds($T), inside: Bounds(T)) -> bool {
+    within_x := container.x < inside.x && container.x + container.width > inside.x + inside.width 
+    within_y := container.y < inside.y && container.y + container.height > inside.y + inside.height
+    return within_x && within_y
+}
+
 bounds_center :: proc(bounds: Bounds($T)) -> [2]T {
     return {bounds.x + bounds.width/2, bounds.y + bounds.height/2}
 }

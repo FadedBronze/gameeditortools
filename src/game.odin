@@ -28,8 +28,9 @@ Entity :: struct {
         DrawHitbox, 
         PlayerControl, 
         CameraFollow,
-        CameraFocus,
+        CameraRoom,
     }] "dropdown",
+    grid_area: ut.Bounds(i32) "group",
     velocity: la.Vector2f64 "text",
     physics_surface: PhysicsSurface "group",
     hitbox: ut.Bounds(f64) "group",
@@ -573,6 +574,18 @@ render :: proc(appdata: rawptr, screen_rect: ut.Bounds(f32), id: editorui.Viewpo
 
         if .Something not_in entity.flags {
             continue
+        }
+
+        if .CameraRoom in entity.flags && .ShowGridOuterBounds in viewport.flags {
+            box := ut.bounds_to_bounds(f64, entity.grid_area)
+            box = grid_bounds_to_worldspace_bounds(box, appdata.linegrid)
+            box = ut.apply_matrix_to_bounds(viewport_mat, box)
+            
+            rl.DrawRectangleLinesEx(
+                transmute(rl.Rectangle)ut.bounds_to_bounds(f32, box), 
+                1.0,
+                auto_cast ut.GREEN,
+            )
         }
 
         if .DrawHitbox in entity.flags {
