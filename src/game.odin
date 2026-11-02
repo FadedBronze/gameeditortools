@@ -36,11 +36,7 @@ Entity :: struct {
     hitbox: ut.Bounds(f64) "group",
     transform: ut.Transform(f64) "group",
     sprite: FirstGameSheetId "dropdown",
-}
-
-EntityType :: enum {
-    None,
-    CollisionSquare,
+    mass: f64 "text",
 }
 
 Environment :: struct {
@@ -352,8 +348,10 @@ update :: proc(appdata: ^AppData, delta_time: f32) {
                 hit, normal, depth := collide_aabb(box, box2)
 
                 if hit {
-                    entity.transform.offset -= normal * depth/2
-                    entity2.transform.offset += normal * depth/2
+                    mass_sum := entity.mass + entity2.mass
+
+                    entity.transform.offset -= normal * depth * entity2.mass / mass_sum
+                    entity2.transform.offset += normal * depth * entity.mass / mass_sum
 
                     delta_v := entity.velocity-entity2.velocity
                     vel_mag := la.length(delta_v)
@@ -366,11 +364,16 @@ update :: proc(appdata: ^AppData, delta_time: f32) {
                     
                     friction := (la.dot(surface, vel_normal) * vel_mag * f) * surface
 
-                    entity.velocity -= (la.dot(surface_normal, vel_normal) * vel_mag * (e + 1)) * surface_normal
-                    entity.velocity -= friction
+                    assert(entity.mass != 0)
+                    assert(entity2.mass != 0)
+
+                    J := la.dot(surface_normal, vel_normal) * vel_mag * (e + 1)
+
+                    entity.velocity -= J * entity2.mass / mass_sum * surface_normal
+                    entity.velocity -= friction * entity2.mass / mass_sum
                     
-                    entity2.velocity += (la.dot(surface_normal, vel_normal) * vel_mag * (e + 1)) * surface_normal
-                    entity2.velocity += friction
+                    entity2.velocity += J * entity.mass / mass_sum * surface_normal
+                    entity2.velocity += friction * entity.mass / mass_sum
                 }
             }
 
