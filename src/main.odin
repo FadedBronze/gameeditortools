@@ -34,6 +34,7 @@ super_panel :: proc(
     }
 
     if .WorldViewports in appdata.editor_settings.open_views && view_placements[.WorldViewports] == placement {
+        editorui.render_structure_panel(editor_ui, "Viewport Data", &appdata.viewport_data, "Viewport Data")
         lables := []string{
             "Viewport 1",
             "Viewport 2",
@@ -87,68 +88,79 @@ create_layout :: proc(
 
     bg := ut.change_opacity(ut.get_contrasting_color(editor_ui.theme.background_color), 20)
 
-    if clay.UI()({ 
-        layout = { 
-            padding = clay.PaddingAll(16),
-            sizing = { width = clay.SizingGrow({}), height = clay.SizingGrow({}) } 
-        }
-    }) {
+    if appdata.fullscreen_viewport_id == max(editorui.ViewportIndex) {
         if clay.UI()({ 
             layout = { 
-                sizing = { width = clay.SizingGrow({}), height = clay.SizingGrow({}) } ,
-                childGap = 5,
-            }, 
+                padding = clay.PaddingAll(16),
+                sizing = { width = clay.SizingGrow({}), height = clay.SizingGrow({}) } 
+            }
         }) {
             if clay.UI()({ 
                 layout = { 
-                    sizing = { width = clay.SizingPercent(0.25), height = clay.SizingGrow({}) },
-                    layoutDirection = .TopToBottom,
+                    sizing = { width = clay.SizingGrow({}), height = clay.SizingGrow({}) } ,
                     childGap = 5,
                 }, 
-                clip = { vertical = true,
-                    childOffset = clay.GetScrollOffset(),
-                },
-                backgroundColor = ut.color_to_f32list(bg),
-            }) {
-                super_panel(editor_ui, appdata, .Left)
-            }
-
-            if clay.UI()({ 
-                layout = { 
-                    sizing = { width = clay.SizingPercent(0.5), height = clay.SizingGrow({}) },
-                    layoutDirection = .TopToBottom,
-                }, 
-                backgroundColor = ut.color_to_f32list(bg),
             }) {
                 if clay.UI()({ 
                     layout = { 
-                        sizing = { width = clay.SizingPercent(1), height = clay.SizingPercent(0.5) } 
+                        sizing = { width = clay.SizingPercent(0.25), height = clay.SizingGrow({}) },
+                        layoutDirection = .TopToBottom,
+                        childGap = 5,
                     }, 
+                    clip = { vertical = true,
+                        childOffset = clay.GetScrollOffset(),
+                    },
+                    backgroundColor = ut.color_to_f32list(bg),
                 }) {
-                    editorui.gameview(0)
+                    super_panel(editor_ui, appdata, .Left)
                 }
 
                 if clay.UI()({ 
                     layout = { 
-                        sizing = { width = clay.SizingPercent(1), height = clay.SizingPercent(0.5) } 
+                        sizing = { width = clay.SizingPercent(0.5), height = clay.SizingGrow({}) },
+                        layoutDirection = .TopToBottom,
                     }, 
+                    backgroundColor = ut.color_to_f32list(bg),
                 }) {
-                    editorui.gameview(1)
+                    if clay.UI()({ 
+                        layout = { 
+                            sizing = { width = clay.SizingPercent(1), height = clay.SizingPercent(0.5) } 
+                        }, 
+                    }) {
+                        editorui.gameview(0)
+                    }
+
+                    if clay.UI()({ 
+                        layout = { 
+                            sizing = { width = clay.SizingPercent(1), height = clay.SizingPercent(0.5) } 
+                        }, 
+                    }) {
+                        editorui.gameview(1)
+                    }
+                }
+
+                if clay.UI()({ 
+                    layout = { 
+                        sizing = { width = clay.SizingPercent(0.25), height = clay.SizingGrow({}) },
+                        layoutDirection = .TopToBottom
+                    }, 
+                    backgroundColor = ut.color_to_f32list(bg),
+                    clip = { vertical = true,
+                        childOffset = clay.GetScrollOffset(),
+                    },
+                }) {
+                    super_panel(editor_ui, appdata, .Right)
                 }
             }
-
-            if clay.UI()({ 
-                layout = { 
-                    sizing = { width = clay.SizingPercent(0.25), height = clay.SizingGrow({}) },
-                    layoutDirection = .TopToBottom
-                }, 
-                backgroundColor = ut.color_to_f32list(bg),
-                clip = { vertical = true,
-                    childOffset = clay.GetScrollOffset(),
-                },
-            }) {
-                super_panel(editor_ui, appdata, .Right)
+        }
+    } else {
+        if clay.UI()({ 
+            layout = { 
+                padding = clay.PaddingAll(16),
+                sizing = { width = clay.SizingGrow({}), height = clay.SizingGrow({}) } 
             }
+        }) {
+            editorui.gameview(appdata.fullscreen_viewport_id)
         }
     }
 

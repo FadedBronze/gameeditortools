@@ -248,7 +248,8 @@ Actions :: bit_set[enum {
 }]
 
 ViewportData :: struct {
-    game_viewport: u32,
+    game_viewport: editorui.ViewportIndex "readonly text",
+    fullscreen_viewport_id: editorui.ViewportIndex "readonly text",
 
     // not used for game viewport splitting just for editor vs game view for now
     viewports: [2]WorldViewport2D,
@@ -547,7 +548,15 @@ render :: proc(appdata: rawptr, screen_rect: ut.Bounds(f32), id: editorui.Viewpo
     viewport.screen_rect = ut.bounds_to_bounds(f64, screen_rect)
 
     rl.DrawRectangleRec(transmute(rl.Rectangle)screen_rect, rl.WHITE)
+    within := ut.position_within_bounds(rl.GetMousePosition(), screen_rect)
 
+    if rl.IsKeyDown(.LEFT_CONTROL) && rl.IsKeyDown(.LEFT_SHIFT) && rl.IsKeyPressed(.F) && within {
+        if appdata.fullscreen_viewport_id == id {
+            appdata.fullscreen_viewport_id = max(editorui.ViewportIndex)
+        } else {
+            appdata.fullscreen_viewport_id = id
+        }
+    }
 
     if .RenderGrid in viewport.flags {
         render_tile_grid_lines(viewport^, appdata.linegrid)

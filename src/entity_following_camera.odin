@@ -19,6 +19,11 @@ follow_player :: proc(camera_follow: ^CameraFollow, appdata: ^AppData, dt: f32) 
             following_entity = entity
         }
     }
+
+    if following_entity == nil {
+        fmt.eprintln("No entity with camera follow")
+        return camera_follow.prev_pos
+    }
     
     // change target focus to room we are in
     for i in 0..<appdata.entities_count {
@@ -34,6 +39,5 @@ follow_player :: proc(camera_follow: ^CameraFollow, appdata: ^AppData, dt: f32) 
     
     camera_follow.prev_pos += (following_entity.transform.offset-camera_follow.prev_pos)*f64(dt)*5
 
-    fmt.eprintln("No entity with camera follow")
     return camera_follow.prev_pos
 }
