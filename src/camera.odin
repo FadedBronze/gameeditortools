@@ -8,6 +8,7 @@ ViewportFlags :: bit_set[enum {
     RenderHitboxes,
     HighlightSelectedEntity,
     HighlightSelectedTile,
+    HighlightCameraRooms,
     ShowGridOuterBounds,
     RenderGrid,
 }]

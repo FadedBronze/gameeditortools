@@ -391,13 +391,22 @@ update :: proc(appdata: ^AppData, delta_time: f32) {
             
             if .PlayerControl in entity.flags {
                 if rl.IsKeyDown(.D) {
-                    entity.velocity.x = 0.005
+                    if entity.velocity.x < 0.01 {
+                        entity.velocity.x = 0.01
+                    }
+                    entity.velocity.x += 0.00005
                 }
                 if rl.IsKeyDown(.A) {
-                    entity.velocity.x = -0.005
+                    if entity.velocity.x > -0.01 {
+                        entity.velocity.x = -0.01
+                    }
+                    entity.velocity.x += -0.00005
                 }
                 if rl.IsKeyPressed(.W) {
                     entity.velocity.y = -0.01
+                }
+                if rl.IsKeyPressed(.S) {
+                    entity.velocity.y = 0.03
                 }
             }
 
@@ -576,7 +585,7 @@ render :: proc(appdata: rawptr, screen_rect: ut.Bounds(f32), id: editorui.Viewpo
             continue
         }
 
-        if .CameraRoom in entity.flags && .ShowGridOuterBounds in viewport.flags {
+        if .CameraRoom in entity.flags && .HighlightCameraRooms in viewport.flags {
             box := ut.bounds_to_bounds(f64, entity.grid_area)
             box = grid_bounds_to_worldspace_bounds(box, appdata.linegrid)
             box = ut.apply_matrix_to_bounds(viewport_mat, box)
@@ -641,6 +650,11 @@ render :: proc(appdata: rawptr, screen_rect: ut.Bounds(f32), id: editorui.Viewpo
         drag_camera(appdata, id)
         zoom_camera(appdata, id)
         
+        if rl.IsKeyDown(.LEFT_CONTROL) {
+            // This section of the code needs to be refactor maybe we have some temporary data that
+            // says where we are on the tilegrid and our world transform position and if we are clicking
+            // ect and then the indiviual logic can be more simple
+        }
     case .CameraControl:
         drag_camera(appdata, id)
         zoom_camera(appdata, id)

@@ -9,6 +9,7 @@ CameraFollow :: struct {
 }
 
 follow_player :: proc(camera_follow: ^CameraFollow, appdata: ^AppData, dt: f32) -> la.Vector2f64 {
+
     // find player
     following_entity: ^Entity
     for i in 0..<appdata.entities_count {

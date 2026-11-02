@@ -48,8 +48,7 @@ super_panel :: proc(
     if .TileEditor in appdata.editor_settings.open_views && view_placements[.TileEditor] == placement {
         label := "TileEditor"
         editorui.render_structure_panel(editor_ui, label, &appdata.linegrid, label)
-
-        editorui.render_structure_panel(editor_ui, label, &appdata.editor_settings.selected_tile, label)
+        editorui.render_structure_panel(editor_ui, "Selected Tile", &appdata.editor_settings.selected_tile, "Selected Tile")
     }
     
     if .Entities in appdata.editor_settings.open_views && view_placements[.Entities] == placement {
