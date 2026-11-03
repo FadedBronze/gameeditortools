@@ -138,15 +138,22 @@ InputReplayFile :: struct {
     // delta between every frame - indexed by the frame number
     delta_times: [dynamic]f32,
 
-    actions: [dynamic]GameActions, 
+    actions: [dynamic]GameAction,
     action_frame: [dynamic]u32,
 
     level_path: string,
     level_version: u32,
 }
 
+GameActionTrigger :: enum { Pressed, Held, Released }
+
+GameAction :: struct {
+    type: GameActionNames,
+    trigger: GameActionTrigger,
+}
+
 // Things bound to keys in game 
-GameActions :: enum {
+GameActionNames :: enum {
     GoLeft,
     GoRight,
     Jump,
@@ -297,6 +304,9 @@ ReplayState :: enum {
 }
 
 AppData :: struct {
+    input_actions_this_frame: [8]GameAction,
+    input_actions_count: u8,
+
     pref_stats: struct {
         fps: f32 "readonly text",
         memory_used_bytes: u32 "readonly text",
@@ -364,7 +374,65 @@ PhysicsSurface :: struct {
     friction: f64 "text",
 }
 
+_general_action :: proc(appdata: ^AppData, action_name: GameActionNames, trigger: GameActionTrigger) -> bool {
+    for action in appdata.input_actions_this_frame[0:appdata.input_actions_count] {
+        if action.type == action_name && trigger == action.trigger {
+            return true
+        }
+    }
+    return false
+}
+
+held_action :: proc(appdata: ^AppData, action_name: GameActionNames) -> bool {
+    return _general_action(appdata, action_name, .Held)
+}
+
+pressed_action :: proc(appdata: ^AppData, action_name: GameActionNames) -> bool {
+    return _general_action(appdata, action_name, .Pressed)
+}
+
+released_action :: proc(appdata: ^AppData, action_name: GameActionNames) -> bool {
+    return _general_action(appdata, action_name, .Released)
+}
+
+update_input_actions :: proc(appdata: ^AppData) {
+    appdata.input_actions_count = 0
+
+    action_binding := [GameActionNames]rl.KeyboardKey {
+         .GoRight = .D,
+         .GoLeft = .A,
+         .Jump = .W,
+         .RushDown = .S,
+    }
+
+    for binding, action in action_binding {
+        if rl.IsKeyPressed(binding) {
+            appdata.input_actions_this_frame[appdata.input_actions_count] = GameAction {
+                trigger = .Pressed,
+                type = action,
+            }
+            appdata.input_actions_count += 1
+        } else if rl.IsKeyReleased(binding) {
+            appdata.input_actions_this_frame[appdata.input_actions_count] = GameAction {
+                trigger = .Released,
+                type = action,
+            }
+            appdata.input_actions_count += 1
+        } else if rl.IsKeyDown(binding) {
+            appdata.input_actions_this_frame[appdata.input_actions_count] = GameAction {
+                trigger = .Held,
+                type = action,
+            }
+            appdata.input_actions_count += 1
+        }
+        
+        assert(appdata.input_actions_count < 8, message = "increase input actions per frame limit")
+    }
+}
+
 update :: proc(appdata: ^AppData, delta_time: f32) {
+    update_input_actions(appdata)
+
     //TODO
     switch appdata.replay_state {
     case .ReloadLevelToStartReplay:
@@ -373,11 +441,11 @@ update :: proc(appdata: ^AppData, delta_time: f32) {
             level_version = appdata.level_version,
             encoding_version = 0,
             action_frame = make([dynamic]u32),
-            actions = make([dynamic]GameActions),
+            actions = make([dynamic]GameAction),
             delta_times = make([dynamic]f32),
         }
 
-        //load_level_data_from_disk(appdata, "default", mem.arena_allocator(&appdata.frame_allocator), mem.arena_allocator(&appdata.init_allocator))
+        load_level_data_from_disk(appdata, "default", mem.arena_allocator(&appdata.frame_allocator), mem.arena_allocator(&appdata.init_allocator))
     case .RecordingReplay:
         append(&appdata.recording_replay.delta_times, delta_time)
     case .NotRecordingReplay:
@@ -473,22 +541,22 @@ update :: proc(appdata: ^AppData, delta_time: f32) {
             }
             
             if .PlayerControl in entity.flags {
-                if rl.IsKeyDown(.D) {
+                if held_action(appdata, .GoRight) {
                     if entity.velocity.x < 10 {
                         entity.velocity.x = 10
                     }
                     entity.velocity.x += 5 * dt
                 }
-                if rl.IsKeyDown(.A) {
+                if held_action(appdata, .GoLeft) {
                     if entity.velocity.x > -10 {
                         entity.velocity.x = -10
                     }
                     entity.velocity.x += 5 * dt
                 }
-                if rl.IsKeyPressed(.W) {
+                if held_action(appdata, .Jump) {
                     entity.velocity.y = -20
                 }
-                if rl.IsKeyDown(.S) {
+                if held_action(appdata, .RushDown) {
                     entity.velocity.y += 200 * dt
                 }
             }
