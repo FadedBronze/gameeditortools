@@ -21,6 +21,11 @@ super_panel :: proc(
         editorui.render_structure_panel(editor_ui, label, &appdata.editor_settings, label)
     }
 
+    if .PerformanceInfo in appdata.editor_settings.open_views && view_placements[.PerformanceInfo] == placement {
+        label := "Performance"
+        editorui.render_structure_panel(editor_ui, label, &appdata.pref_stats, label)
+    }
+
     if .NewWorldBounds in appdata.editor_settings.open_views && view_placements[.NewWorldBounds] == placement {
         editorui.render_structure_panel(editor_ui, "New World Bounds", &appdata.new_bounds, "New World Bounds")
     }
@@ -31,6 +36,16 @@ super_panel :: proc(
 
     if .LevelData in appdata.editor_settings.open_views && view_placements[.LevelData] == placement {
         editorui.render_structure_panel(editor_ui, "Level Data", &appdata.level_data, "Level Data")
+    }
+    
+    if .Replays in appdata.editor_settings.open_views && view_placements[.Replays] == placement {
+        label := "Replay"
+        view_data: struct {
+            state: ^ReplayState "dropdown",
+        } = {
+            state = &appdata.replay_state
+        }
+        editorui.render_structure_panel(editor_ui, label, &view_data, label)
     }
 
     if .WorldViewports in appdata.editor_settings.open_views && view_placements[.WorldViewports] == placement {
@@ -222,11 +237,11 @@ error_handler :: proc "c" (errorData: clay.ErrorData) {
 }
 
 main :: proc() { 
-    rl.InitWindow(1080, 720, "yay")
-    rl.SetWindowState({.WINDOW_RESIZABLE})
- 
+    rl.InitWindow(0, 0, "yay")
+    rl.SetWindowState({.FULLSCREEN_MODE})
+
     appdata: AppData
-    appdata.replay = &appdata.level_data.data
+    appdata.level = &appdata.level_data.data
     appdata.editor_settings = &appdata.editor_config_data.data
     appdata.viewport_data = &appdata.viewport_config_data.data
     init_app(&appdata, context.allocator)     

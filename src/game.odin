@@ -71,6 +71,8 @@ Views :: enum {
     LevelData,
     ProgramControl,
     EditorSet,
+    Replays,
+    PerformanceInfo,
 }
 
 EditorPlacement :: enum {
@@ -83,10 +85,12 @@ EditorPlacement :: enum {
 // TODO: add to editor settings once enum arrays added to widget generator
 view_placements :: [Views]EditorPlacement {
     .EditorSet = .Left,
+    .PerformanceInfo = .Left,
     .WorldViewports = .Left,
     .TileEditor = .Left,
     .Entities = .Left,
     .LevelData = .Left,
+    .Replays = .Left,
     .ProgramControl = .Right,
     .ThemeEditor = .Right,
     .Actions = .Right,
@@ -113,6 +117,13 @@ EditorSettings :: struct {
     } "dropdown",
 }
 
+EmptyDrag :: struct {}
+
+Drag :: union {
+    EmptyDrag,
+    ViewportDrag,
+}
+
 Signals :: enum {
     Wait,
     GoUp,
@@ -121,36 +132,54 @@ Signals :: enum {
     GoRight,
 }
 
-EmptyDrag :: struct {}
+InputReplayFile :: struct {
+    encoding_version: u32, // may switch to deltas of deltas for the frames
 
-Drag :: union {
-    EmptyDrag,
-    ViewportDrag,
+    // delta between every frame - indexed by the frame number
+    delta_times: [dynamic]f32,
+
+    actions: [dynamic]GameActions, 
+    action_frame: [dynamic]u32,
+
+    level_path: string,
+    level_version: u32,
+}
+
+// Things bound to keys in game 
+GameActions :: enum {
+    GoLeft,
+    GoRight,
+    Jump,
+    RushDown,
 }
 
 // loaded at start but is modified at runtime -- currently not loaded though
-LevelAndReplayFile :: struct {
+LevelFile :: struct {
     random_seed: u32 "text",
     grid: Grid(Tile) "readonly group",
     base_entities: []Entity,
     grid_physics: PhysicsSurface "group",
     linegrid: RectangleLineGrid "group",
     computed_simplified_collision_hitboxes: []ut.Bounds(f64), // greedy meshed hitboxes
+    // incremented every time loaded file is overwritten
+    level_version: u32,
+    level_path: string,
 }
 
 ConfigFiles :: struct {
     editor_settings: ^EditorSettings,
 }
 
-save_replay_data_to_disk :: proc(appdata: ^AppData, level: string, frame_allocator: mem.Allocator) -> bool {
-    replay: VersionedFile(LevelAndReplayFile) = appdata.level_data
-    replay.data.base_entities = appdata.entities[0:appdata.entities_count]
-    data, err_marshall := cbor.marshal_into_bytes(replay, allocator=frame_allocator, temp_allocator=frame_allocator)
+save_level_data_to_disk :: proc(appdata: ^AppData, level_path: string, frame_allocator: mem.Allocator) -> bool {
+    level: VersionedFile(LevelFile) = appdata.level_data
+    level.data.base_entities = appdata.entities[0:appdata.entities_count]
+    data, err_marshall := cbor.marshal_into_bytes(level, allocator=frame_allocator, temp_allocator=frame_allocator)
     if err_marshall != nil {
         fmt.println("failed to marshal data", err_marshall)
         return false
     }
-    fullpath := strings.concatenate({"./leveldata/", level}, allocator=frame_allocator)
+    level.data.level_path = level_path
+    fullpath := strings.concatenate({"./leveldata/", level_path}, allocator=frame_allocator)
     err := os.write_entire_file(fullpath, data)
     if err != nil {
         fmt.println("failed to save level", fullpath, "to disk", err)
@@ -160,26 +189,28 @@ save_replay_data_to_disk :: proc(appdata: ^AppData, level: string, frame_allocat
     return true
 }
 
-load_replay_data_from_disk :: proc(appdata: ^AppData, level: string, frame_allocator: mem.Allocator, init_allocator: mem.Allocator) -> bool {
-    data, err := os.read_entire_file_from_path(strings.concatenate({"./leveldata/", level}, allocator=frame_allocator), frame_allocator)
+load_level_data_from_disk :: proc(appdata: ^AppData, level_path: string, frame_allocator: mem.Allocator, init_allocator: mem.Allocator) -> bool {
+    data, err := os.read_entire_file_from_path(strings.concatenate({"./leveldata/", level_path}, allocator=frame_allocator), frame_allocator)
     if err != nil {
-        fmt.println("failed to load level", level, "from disk")
+        fmt.println("failed to load level", level_path, "from disk")
         return false
     }
-    replay: VersionedFile(LevelAndReplayFile)
-    err_marshall := cbor.unmarshal_from_bytes(data, &replay, allocator=init_allocator)
+    level: VersionedFile(LevelFile)
+    err_marshall := cbor.unmarshal_from_bytes(data, &level, allocator=init_allocator)
     if err_marshall != nil {
         fmt.println("failed to unmarshal data", err_marshall)
         return false
     }
 
     appdata.entities = make([]Entity, MAX_ENTITIES)
-    appdata.entities_count = u32(len(replay.data.base_entities))
-    copy(appdata.entities, replay.data.base_entities)
+    appdata.entities_count = u32(len(level.data.base_entities))
+    copy(appdata.entities, level.data.base_entities)
 
-    appdata.level_data = replay
+    //assert(level.data.name == level_path)
 
-    if len(appdata.replay.grid.tiles) == 0 {
+    appdata.level_data = level
+
+    if len(appdata.grid.tiles) == 0 {
         resize_grid(&appdata.grid, ut.Bounds(i32) {
             x = -10,
             y = -10,
@@ -198,7 +229,12 @@ load_replay_data_from_disk :: proc(appdata: ^AppData, level: string, frame_alloc
 
     appdata.new_bounds = appdata.grid.bounds
 
-    fmt.println("data loaded successfully")
+    if appdata.level_data.version != LEVEL_REPLAY_FILE_VERSION {
+        fmt.println("WARNING: level data version mismatch")
+        return true
+    }
+
+    appdata.computed_simplified_collision_hitboxes = greedy_mesh_grid_into_worldspace_aabb_bounds_list(appdata.grid, appdata.linegrid);
     return true
 }
 
@@ -236,7 +272,7 @@ load_config_file_from_disk :: proc(b: ^VersionedFile($T), filename: string, fram
 Actions :: bit_set[enum {
     LoadDataFromDisk,
     RecomputeGridHitboxes,
-    SaveReplayOnExit,
+    SaveLevelOnExit,
     SaveAllConfigsOnExit,
     OverwriteSelectedEntity,
     ResizeWorldBounds,
@@ -251,10 +287,24 @@ ViewportData :: struct {
     viewports: [2]WorldViewport2D,
 }
 
+ReplayState :: enum { 
+    NotRecordingReplay, 
+    ReloadLevelToStartReplay, 
+    RecordingReplay,
+    SaveReplayToDisk,
+    ReloadLevelToPlaybackReplayFromDisk,
+    PlayingBack,
+}
+
 AppData :: struct {
+    pref_stats: struct {
+        fps: f32 "readonly text",
+        memory_used_bytes: u32 "readonly text",
+    },
+
     // time
     delta_time: f32,
-    sim_time: f32, // seconds since simulation start marks ability activation boundraries
+    frame_number: u32,
 
     control: struct {
         actions: Actions "dropdown",
@@ -285,7 +335,7 @@ AppData :: struct {
     init_allocator: mem.Arena,
 
     // loaded data
-    level_data: VersionedFile(LevelAndReplayFile),
+    level_data: VersionedFile(LevelFile),
     editor_config_data: VersionedFile(EditorSettings),
     // should be moved perhaps idek how to architect this thing
     theme_config_data: VersionedFile(editorui.EditorUITheme),
@@ -293,7 +343,7 @@ AppData :: struct {
 
     // references to loaded data
     editor_settings: ^EditorSettings,
-    using replay: ^LevelAndReplayFile,
+    using level: ^LevelFile,
     using viewport_data: ^ViewportData,
 
     // assets
@@ -301,6 +351,10 @@ AppData :: struct {
 
     // editorui
     editor_ui: editorui.EditorUI,
+
+    // recording inputs
+    replay_state: ReplayState,
+    recording_replay: InputReplayFile,
 }
 
 // TODO will have to redo the greedy mesher to support varying properties on different tiles
@@ -311,14 +365,38 @@ PhysicsSurface :: struct {
 }
 
 update :: proc(appdata: ^AppData, delta_time: f32) {
+    //TODO
+    switch appdata.replay_state {
+    case .ReloadLevelToStartReplay:
+        appdata.recording_replay = {
+            level_path = appdata.level_path,
+            level_version = appdata.level_version,
+            encoding_version = 0,
+            action_frame = make([dynamic]u32),
+            actions = make([dynamic]GameActions),
+            delta_times = make([dynamic]f32),
+        }
+
+        //load_level_data_from_disk(appdata, "default", mem.arena_allocator(&appdata.frame_allocator), mem.arena_allocator(&appdata.init_allocator))
+    case .RecordingReplay:
+        append(&appdata.recording_replay.delta_times, delta_time)
+    case .NotRecordingReplay:
+    case .SaveReplayToDisk:
+    case .ReloadLevelToPlaybackReplayFromDisk:
+    case .PlayingBack:
+    }
+    
     appdata.delta_time = delta_time
+    appdata.pref_stats.fps = 1/appdata.delta_time
+    // we don't dealloc from init memory
+    appdata.pref_stats.memory_used_bytes = u32(appdata.init_allocator.peak_used)
+
     dt := f64(delta_time)
- 
     b := appdata.grid.bounds
 
     for y in b.y..<b.height+b.y {
         for x in b.x..<b.width+b.x {
-            //TODO
+            //TODO?
         }
     }
 
@@ -420,19 +498,13 @@ update :: proc(appdata: ^AppData, delta_time: f32) {
     }
     
     if .LoadDataFromDisk in appdata.control.actions {
-        load_replay_data_from_disk(appdata, "default", mem.arena_allocator(&appdata.frame_allocator), mem.arena_allocator(&appdata.init_allocator))
-
-        if appdata.level_data.version != LEVEL_REPLAY_FILE_VERSION {
-            fmt.println("WARNING: level data version mismatch")
-        }
+        load_level_data_from_disk(appdata, "default", mem.arena_allocator(&appdata.frame_allocator), mem.arena_allocator(&appdata.init_allocator))
 
         appdata.control.actions -= {.LoadDataFromDisk}
-        appdata.control.actions += {.RecomputeGridHitboxes}
     }
 
     if .RecomputeGridHitboxes in appdata.control.actions {
-        worldspace_bounds := greedy_mesh_grid_into_worldspace_aabb_bounds_list(appdata.grid, appdata.linegrid)
-        appdata.computed_simplified_collision_hitboxes = worldspace_bounds;
+        appdata.computed_simplified_collision_hitboxes = greedy_mesh_grid_into_worldspace_aabb_bounds_list(appdata.grid, appdata.linegrid);
 
         appdata.control.actions -= {.RecomputeGridHitboxes}
     }
@@ -827,14 +899,14 @@ THEME_SETTINGS_VERSION :: 0
 VIEWPORT_SETTINGS_VERSION :: 0
 
 exit_app :: proc(appdata: ^AppData) { 
-    if .SaveReplayOnExit in appdata.control.actions {
-        level_data: VersionedFile(LevelAndReplayFile) = {
-            data = appdata.replay^,
+    if .SaveLevelOnExit in appdata.control.actions {
+        level_data: VersionedFile(LevelFile) = {
+            data = appdata.level^,
             version = LEVEL_REPLAY_FILE_VERSION,
         }
 
         //if appdata.level_data.version == LEVEL_REPLAY_FILE_VERSION {
-        save_replay_data_to_disk(appdata, "default", mem.arena_allocator(&appdata.frame_allocator))
+        save_level_data_to_disk(appdata, "default", mem.arena_allocator(&appdata.frame_allocator))
         //} else {
         //    fmt.eprintln("WARNING: write updates file version")
         //}
