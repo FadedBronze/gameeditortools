@@ -1,18 +1,16 @@
 package main
 
-import "project:editorui"
-import ut "project:utils"
-import clay "project:clay-odin"
-import rl "vendor:raylib"
-import la "core:math/linalg"
 import "core:math/rand"
 import "core:fmt"
 import "core:mem"
-import "core:encoding/cbor"
-import "core:encoding/json"
-import "core:os"
-import "core:strings"
+import la "core:math/linalg"
+
+import "project:editorui"
+import ut "project:utils"
+import clay "project:clay-odin"
 import rn "project:raylibeditoruirenderer"
+
+import rl "vendor:raylib"
 
 Direction :: enum u8 {
     Up,
@@ -132,19 +130,6 @@ Signals :: enum {
     GoRight,
 }
 
-InputReplayFile :: struct {
-    encoding_version: u32, // may switch to deltas of deltas for the frames
-
-    // delta between every frame - indexed by the frame number
-    delta_times: [dynamic]f32,
-
-    actions: [dynamic]GameAction,
-    action_frame: [dynamic]u32,
-
-    level_path: string,
-    level_version: u32,
-}
-
 GameActionTrigger :: enum { Pressed, Held, Released }
 
 GameAction :: struct {
@@ -158,122 +143,6 @@ GameActionNames :: enum {
     GoRight,
     Jump,
     RushDown,
-}
-
-// loaded at start but is modified at runtime -- currently not loaded though
-LevelFile :: struct {
-    random_seed: u32 "text",
-    grid: Grid(Tile) "readonly group",
-    base_entities: []Entity,
-    grid_physics: PhysicsSurface "group",
-    linegrid: RectangleLineGrid "group",
-    computed_simplified_collision_hitboxes: []ut.Bounds(f64), // greedy meshed hitboxes
-    // incremented every time loaded file is overwritten
-    level_version: u32,
-    level_path: string,
-}
-
-ConfigFiles :: struct {
-    editor_settings: ^EditorSettings,
-}
-
-save_level_data_to_disk :: proc(appdata: ^AppData, level_path: string, frame_allocator: mem.Allocator) -> bool {
-    level: VersionedFile(LevelFile) = appdata.level_data
-    level.data.base_entities = appdata.entities[0:appdata.entities_count]
-    data, err_marshall := cbor.marshal_into_bytes(level, allocator=frame_allocator, temp_allocator=frame_allocator)
-    if err_marshall != nil {
-        fmt.println("failed to marshal data", err_marshall)
-        return false
-    }
-    level.data.level_path = level_path
-    fullpath := strings.concatenate({"./leveldata/", level_path}, allocator=frame_allocator)
-    err := os.write_entire_file(fullpath, data)
-    if err != nil {
-        fmt.println("failed to save level", fullpath, "to disk", err)
-        return false
-    }
-    fmt.println("data saved successfully")
-    return true
-}
-
-load_level_data_from_disk :: proc(appdata: ^AppData, level_path: string, frame_allocator: mem.Allocator, init_allocator: mem.Allocator) -> bool {
-    data, err := os.read_entire_file_from_path(strings.concatenate({"./leveldata/", level_path}, allocator=frame_allocator), frame_allocator)
-    if err != nil {
-        fmt.println("failed to load level", level_path, "from disk")
-        return false
-    }
-    level: VersionedFile(LevelFile)
-    err_marshall := cbor.unmarshal_from_bytes(data, &level, allocator=init_allocator)
-    if err_marshall != nil {
-        fmt.println("failed to unmarshal data", err_marshall)
-        return false
-    }
-
-    appdata.entities = make([]Entity, MAX_ENTITIES)
-    appdata.entities_count = u32(len(level.data.base_entities))
-    copy(appdata.entities, level.data.base_entities)
-
-    //assert(level.data.name == level_path)
-
-    appdata.level_data = level
-
-    if len(appdata.grid.tiles) == 0 {
-        resize_grid(&appdata.grid, ut.Bounds(i32) {
-            x = -10,
-            y = -10,
-            width = 20,
-            height = 20,
-        }, init_allocator)
-    }
-
-    if appdata.linegrid.width == 0 {
-        appdata.linegrid = RectangleLineGrid {
-            width = 1,
-            height = 1,
-            transform = ut.TRANSFORM_IDENTITY_F64,
-        }
-    }
-
-    appdata.new_bounds = appdata.grid.bounds
-
-    if appdata.level_data.version != LEVEL_REPLAY_FILE_VERSION {
-        fmt.println("WARNING: level data version mismatch")
-        return true
-    }
-
-    appdata.computed_simplified_collision_hitboxes = greedy_mesh_grid_into_worldspace_aabb_bounds_list(appdata.grid, appdata.linegrid);
-    return true
-}
-
-save_config_data_to_disk :: proc(b: VersionedFile($T), filename: string, frame_allocator: mem.Allocator) -> bool {
-    data, err_marhshall := json.marshal(b, allocator=frame_allocator)
-    if err_marhshall != nil {
-        fmt.println("failed to marshal JSON", err_marhshall)
-        return false
-    }
-    fullpath := strings.concatenate({"./configs/", filename, ".json"}, allocator=frame_allocator)
-    err := os.write_entire_file(fullpath, data)
-    if err != nil {
-        fmt.println("failed to save config file", fullpath, "to disk", err)
-        return false
-    }
-    fmt.println("saved config", filename)
-    return true
-}
-
-load_config_file_from_disk :: proc(b: ^VersionedFile($T), filename: string, frame_allocator: mem.Allocator, init_allocator: mem.Allocator) -> bool {
-    data, err := os.read_entire_file_from_path(strings.concatenate({"./configs/", filename, ".json"}, allocator=frame_allocator), frame_allocator)
-    if err != nil {
-        fmt.println("failed to load config", filename, "from disk")
-        return false
-    }
-    err_marshall := json.unmarshal(data, b, allocator=init_allocator)
-    if err_marshall != nil {
-        fmt.println("failed to unmarshal JSON", err_marshall)
-        return false
-    }
-    fmt.println("data loaded successfully")
-    return true
 }
 
 Actions :: bit_set[enum {
@@ -306,6 +175,8 @@ ReplayState :: enum {
 AppData :: struct {
     input_actions_this_frame: [8]GameAction,
     input_actions_count: u8,
+    // used when playing back actions
+    replay_playback_action_index: u32,
 
     pref_stats: struct {
         fps: f32 "readonly text",
@@ -327,6 +198,7 @@ AppData :: struct {
     camera_follow: CameraFollow,
     drag: Drag,
     ui_context: ^clay.Context,
+    computed_simplified_collision_hitboxes: []ut.Bounds(f64), // greedy meshed hitboxes
 
     // if you want to increase or decrease world bounds
     new_bounds: ut.Bounds(i32) "group",
@@ -341,8 +213,11 @@ AppData :: struct {
     // memory
     frame_buffer: []u8,
     frame_allocator: mem.Arena,
+    frame_mem_alloc: mem.Allocator,
+
     init_buffer: []u8,
     init_allocator: mem.Arena,
+    init_mem_alloc: mem.Allocator,
 
     // loaded data
     level_data: VersionedFile(LevelFile),
@@ -362,9 +237,12 @@ AppData :: struct {
     // editorui
     editor_ui: editorui.EditorUI,
 
+    replay_files_associated_with_level: []string,
+    selected_replay_file: u8,
+
     // recording inputs
     replay_state: ReplayState,
-    recording_replay: InputReplayFile,
+    loaded_replay: InputReplayFile,
 }
 
 // TODO will have to redo the greedy mesher to support varying properties on different tiles
@@ -430,13 +308,21 @@ update_input_actions :: proc(appdata: ^AppData) {
     }
 }
 
-update :: proc(appdata: ^AppData, delta_time: f32) {
-    update_input_actions(appdata)
+update :: proc(appdata: ^AppData, delta: f32) {
+    appdata.pref_stats.fps = 1/appdata.delta_time
+    // we don't dealloc from init memory
+    appdata.pref_stats.memory_used_bytes = u32(appdata.init_allocator.peak_used)
+
+    // overriden if doing replay
+    if appdata.replay_state != .PlayingBack {
+        appdata.delta_time = delta
+        update_input_actions(appdata)
+    }
 
     //TODO
     switch appdata.replay_state {
     case .ReloadLevelToStartReplay:
-        appdata.recording_replay = {
+        appdata.loaded_replay = {
             level_path = appdata.level_path,
             level_version = appdata.level_version,
             encoding_version = 0,
@@ -445,21 +331,51 @@ update :: proc(appdata: ^AppData, delta_time: f32) {
             delta_times = make([dynamic]f32),
         }
 
-        load_level_data_from_disk(appdata, "default", mem.arena_allocator(&appdata.frame_allocator), mem.arena_allocator(&appdata.init_allocator))
+        if (load_level_data_from_disk(appdata, "default", appdata.frame_mem_alloc, appdata.frame_mem_alloc)) {
+            appdata.replay_state = .RecordingReplay
+            appdata.frame_number = 0
+        }
     case .RecordingReplay:
-        append(&appdata.recording_replay.delta_times, delta_time)
-    case .NotRecordingReplay:
-    case .SaveReplayToDisk:
-    case .ReloadLevelToPlaybackReplayFromDisk:
-    case .PlayingBack:
-    }
-    
-    appdata.delta_time = delta_time
-    appdata.pref_stats.fps = 1/appdata.delta_time
-    // we don't dealloc from init memory
-    appdata.pref_stats.memory_used_bytes = u32(appdata.init_allocator.peak_used)
+        append(&appdata.loaded_replay.delta_times, appdata.delta_time)
 
-    dt := f64(delta_time)
+        for action in appdata.input_actions_this_frame[0:appdata.input_actions_count] {
+            append(&appdata.loaded_replay.actions, action)
+            append(&appdata.loaded_replay.action_frame, appdata.frame_number)
+        }
+    case .SaveReplayToDisk:
+        save_replay_file_to_disk(appdata, appdata.frame_mem_alloc, appdata.init_mem_alloc)
+
+        appdata.replay_state = .NotRecordingReplay
+    case .ReloadLevelToPlaybackReplayFromDisk:
+        load_level_data_from_disk(appdata, "default", appdata.frame_mem_alloc, appdata.init_mem_alloc)
+        load_selected_replay_file_from_disk(appdata, appdata.frame_mem_alloc, appdata.init_mem_alloc)
+
+        appdata.replay_state = .PlayingBack
+        appdata.frame_number = 0
+        appdata.replay_playback_action_index = 0
+    case .PlayingBack:
+        appdata.delta_time = appdata.loaded_replay.delta_times[appdata.frame_number]
+        appdata.input_actions_count = 0
+
+        i := appdata.replay_playback_action_index
+        frame: u32 = 0
+        for frame <= appdata.frame_number {
+            fmt.println(frame, appdata.frame_number)
+            assert(frame == appdata.frame_number)
+            action := appdata.loaded_replay.actions[i]
+
+            appdata.input_actions_this_frame[appdata.input_actions_count] = action
+            appdata.input_actions_count += 1
+            assert(appdata.input_actions_count < 8, "increase input actions per frame limit")
+
+            i += 1
+            frame = appdata.loaded_replay.action_frame[i]
+        }
+        appdata.replay_playback_action_index = i
+    case .NotRecordingReplay:
+    }        
+
+    dt := f64(appdata.delta_time)
     b := appdata.grid.bounds
 
     for y in b.y..<b.height+b.y {
@@ -478,7 +394,7 @@ update :: proc(appdata: ^AppData, delta_time: f32) {
         if .Physics in entity.flags {
             grid_mat := ut.create_matrix_from_transform(appdata.linegrid.transform)
 
-            entity.velocity += grid_to_world_position({0.0, 9.81}, appdata.linegrid) * f64(delta_time)
+            entity.velocity += grid_to_world_position({0.0, 9.81}, appdata.linegrid) * f64(appdata.delta_time)
             
             box := ut.apply_matrix_to_bounds(ut.create_matrix_from_transform(entity.transform), entity.hitbox)
 
@@ -566,7 +482,7 @@ update :: proc(appdata: ^AppData, delta_time: f32) {
     }
     
     if .LoadDataFromDisk in appdata.control.actions {
-        load_level_data_from_disk(appdata, "default", mem.arena_allocator(&appdata.frame_allocator), mem.arena_allocator(&appdata.init_allocator))
+        load_level_data_from_disk(appdata, "default", appdata.frame_mem_alloc, appdata.init_mem_alloc)
 
         appdata.control.actions -= {.LoadDataFromDisk}
     }
@@ -583,7 +499,7 @@ update :: proc(appdata: ^AppData, delta_time: f32) {
     }
 
     if .ResizeWorldBounds in appdata.control.actions {
-        resize_grid(&appdata.grid, appdata.new_bounds, mem.arena_allocator(&appdata.init_allocator))
+        resize_grid(&appdata.grid, appdata.new_bounds, appdata.init_mem_alloc)
         appdata.control.actions -= { .ResizeWorldBounds }
     }
 
@@ -592,9 +508,12 @@ update :: proc(appdata: ^AppData, delta_time: f32) {
         appdata.control.actions -= { .DeleteSelectedEntityID }
     }
 
-    appdata.viewports[appdata.game_viewport].camera_position = follow_player(&appdata.camera_follow, appdata, delta_time)
+    appdata.viewports[appdata.game_viewport].camera_position = follow_player(&appdata.camera_follow, appdata, appdata.delta_time)
 
     mem.arena_free_all(&appdata.frame_allocator)
+    
+    // frame incremented after
+    appdata.frame_number += 1
 }
 
 find_closest_entity_within_distance :: proc(appdata: ^AppData, world_position: la.Vector2f64, distance: f64) -> (u32, ^Entity) {
@@ -815,14 +734,14 @@ render :: proc(appdata: rawptr, screen_rect: ut.Bounds(f32), id: editorui.Viewpo
         if rl.IsKeyDown(.LEFT_CONTROL) {
             drag_camera(appdata, id)
         } else {
-            place_tile(appdata, id, mem.arena_allocator(&appdata.init_allocator))
+            place_tile(appdata, id, appdata.init_mem_alloc)
         }
         zoom_camera(appdata, id)
     case .EntityBrush:
         if rl.IsKeyDown(.LEFT_CONTROL) {
             drag_camera(appdata, id)
         } else {
-            place_entity(appdata, id, mem.arena_allocator(&appdata.init_allocator))
+            place_entity(appdata, id, appdata.init_mem_alloc)
         }
         
         zoom_camera(appdata, id)
@@ -836,7 +755,7 @@ render :: proc(appdata: rawptr, screen_rect: ut.Bounds(f32), id: editorui.Viewpo
 }
 
 spawn_random_land :: proc(appdata: ^AppData) {
-    frame_allocator := mem.arena_allocator(&appdata.frame_allocator)
+    frame_allocator := appdata.frame_mem_alloc
     land := make([]bool, len(appdata.grid.tiles))
     for i in 0..<len(appdata.grid.tiles)/30 {
         land[i] = true
@@ -854,7 +773,7 @@ spawn_random_land :: proc(appdata: ^AppData) {
 }
 
 spawn_land_borders :: proc(appdata: ^AppData) {
-    frame_allocator := mem.arena_allocator(&appdata.frame_allocator)
+    frame_allocator := appdata.frame_mem_alloc
     
     block := Tile {
         environment = Environment {
@@ -894,13 +813,15 @@ init_app :: proc(appdata: ^AppData, allocator: mem.Allocator) {
     // memory
     appdata.frame_buffer = make([]u8, FRAME_MEMORY_BUFFER_SIZE)
     mem.arena_init(&appdata.frame_allocator, appdata.frame_buffer)
+    appdata.frame_mem_alloc = mem.arena_allocator(&appdata.frame_allocator)
 
     appdata.init_buffer = make([]u8, INIT_MEMORY_BUFFER_SIZE)
     mem.arena_init(&appdata.init_allocator, appdata.init_buffer)
+    appdata.init_mem_alloc = mem.arena_allocator(&appdata.init_allocator)
 
     // clay
     min_memory_size := clay.MinMemorySize()
-    memory := make([^]u8, min_memory_size, mem.arena_allocator(&appdata.init_allocator))
+    memory := make([^]u8, min_memory_size, appdata.init_mem_alloc)
     arena: clay.Arena = clay.CreateArenaWithCapacityAndMemory(uint(min_memory_size), memory)
     game_ui_context := clay.Initialize(arena, {1080, 720}, { handler = error_handler })
     appdata.ui_context = game_ui_context
@@ -917,8 +838,8 @@ init_app :: proc(appdata: ^AppData, allocator: mem.Allocator) {
     load_config_file_from_disk(
         &appdata.theme_config_data, 
         "theme_settings", 
-        mem.arena_allocator(&appdata.frame_allocator), 
-        mem.arena_allocator(&appdata.init_allocator)
+        appdata.frame_mem_alloc, 
+        appdata.init_mem_alloc
     )
 
     appdata.editor_ui = editorui.create_editorui(&appdata.theme_config_data.data, context.allocator)
@@ -930,41 +851,21 @@ init_app :: proc(appdata: ^AppData, allocator: mem.Allocator) {
     load_config_file_from_disk(
         &appdata.editor_config_data, 
         "editor_settings", 
-        mem.arena_allocator(&appdata.frame_allocator), 
-        mem.arena_allocator(&appdata.init_allocator)
+        appdata.frame_mem_alloc, 
+        appdata.init_mem_alloc
     )
     
     load_config_file_from_disk(
         &appdata.viewport_config_data, 
         "viewport_settings", 
-        mem.arena_allocator(&appdata.frame_allocator), 
-        mem.arena_allocator(&appdata.init_allocator)
+        appdata.frame_mem_alloc, 
+        appdata.init_mem_alloc
     )
 
     appdata.editor_settings.selected_entity = entity_stub
     
     rn.init_font_table(&rn.font_table, context.allocator)
 }
-
-ConfigFileNames :: enum {
-    EditorSettings,
-    ThemeSettings,
-}
-
-config_file_paths: [ConfigFileNames]string = {
-    .EditorSettings = "./configs/editor_settings.config.odin",
-    .ThemeSettings = "./configs/theme_settings.config.odin"
-}
-
-VersionedFile :: struct(T: typeid) {
-    version: u32 "text",
-    data: T "group",
-}
-
-LEVEL_REPLAY_FILE_VERSION :: 2
-EDITOR_SETTINGS_VERSION :: 1
-THEME_SETTINGS_VERSION :: 0
-VIEWPORT_SETTINGS_VERSION :: 0
 
 exit_app :: proc(appdata: ^AppData) { 
     if .SaveLevelOnExit in appdata.control.actions {
@@ -974,7 +875,7 @@ exit_app :: proc(appdata: ^AppData) {
         }
 
         //if appdata.level_data.version == LEVEL_REPLAY_FILE_VERSION {
-        save_level_data_to_disk(appdata, "default", mem.arena_allocator(&appdata.frame_allocator))
+        save_level_data_to_disk(appdata, "default", appdata.frame_mem_alloc)
         //} else {
         //    fmt.eprintln("WARNING: write updates file version")
         //}
@@ -985,7 +886,7 @@ exit_app :: proc(appdata: ^AppData) {
             save_config_data_to_disk(
                 appdata.theme_config_data, 
                 "theme_settings", 
-                mem.arena_allocator(&appdata.frame_allocator), 
+                appdata.frame_mem_alloc, 
             )
         //} else {
         //    fmt.eprintln("WARNING: write updates file version")
@@ -995,7 +896,7 @@ exit_app :: proc(appdata: ^AppData) {
             save_config_data_to_disk(
                 appdata.editor_config_data, 
                 "editor_settings", 
-                mem.arena_allocator(&appdata.frame_allocator), 
+                appdata.frame_mem_alloc, 
             ) 
         //} else {
         //    fmt.eprintln("WARNING: write updates file version")
@@ -1004,7 +905,7 @@ exit_app :: proc(appdata: ^AppData) {
         save_config_data_to_disk(
             appdata.viewport_config_data, 
             "viewport_settings", 
-            mem.arena_allocator(&appdata.frame_allocator), 
+            appdata.frame_mem_alloc, 
         ) 
     }
 }

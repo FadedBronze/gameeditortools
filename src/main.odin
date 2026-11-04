@@ -42,8 +42,10 @@ super_panel :: proc(
         label := "Replay"
         view_data: struct {
             state: ^ReplayState "dropdown",
+            selected_replay: ^u8 "text",
         } = {
-            state = &appdata.replay_state
+            state = &appdata.replay_state,
+            selected_replay = &appdata.selected_replay_file
         }
         editorui.render_structure_panel(editor_ui, label, &view_data, label)
     }
