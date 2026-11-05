@@ -41,11 +41,13 @@ super_panel :: proc(
     if .Replays in appdata.editor_settings.open_views && view_placements[.Replays] == placement {
         label := "Replay"
         view_data: struct {
-            state: ^ReplayState "dropdown",
+            state: ^ReplayAction "dropdown",
             selected_replay: ^u8 "text",
+            replay_file: ^InputReplayFile "group",
         } = {
-            state = &appdata.replay_info.state,
-            selected_replay = &appdata.replay_info.selected_file
+            state = &appdata.replay_info.action,
+            selected_replay = &appdata.replay_info.selected_file,
+            replay_file = &appdata.replay_info.loaded,
         }
         editorui.render_structure_panel(editor_ui, label, &view_data, label)
     }

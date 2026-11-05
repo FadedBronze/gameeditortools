@@ -33,15 +33,15 @@ LevelFile :: struct {
 }
 
 InputReplayFile :: struct {
-    encoding_version: u32, // may switch to deltas of deltas for the frames
+    encoding_version: u32 "readonly text", // may switch to deltas of deltas for the frames
 
     // delta between every frame - indexed by the frame number
     delta_times: []f32,
     actions: []GameAction,
     action_frame: []u32,
 
-    level_path: string,
-    level_version: u32,
+    level_path: string "readonly text",
+    level_version: u32 "readonly text",
 }
 
 LEVEL_REPLAY_FILE_VERSION :: 2
@@ -233,8 +233,10 @@ load_selected_replay_file_from_disk :: proc(replay_info: ^ReplayInfo, level_path
     return true
 }
 
-save_replay_file_to_disk :: proc(replay_info: ^ReplayInfo, frame_allocator: mem.Allocator, init_allocator: mem.Allocator) -> bool {
-    data, err_marshall := cbor.marshal_into_bytes(replay_info.loaded, allocator=init_allocator, temp_allocator=frame_allocator)
+save_replay_file_to_disk :: proc(replay_file: ^InputReplayFile, level_path: string, frame_allocator: mem.Allocator, init_allocator: mem.Allocator) -> bool {
+    assert(replay_file.level_path == level_path)
+
+    data, err_marshall := cbor.marshal_into_bytes(replay_file^, allocator=init_allocator, temp_allocator=frame_allocator)
     if err_marshall != nil {
         fmt.println("failed to marshal save replay data", err_marshall)
         return false
@@ -244,7 +246,7 @@ save_replay_file_to_disk :: proc(replay_info: ^ReplayInfo, frame_allocator: mem.
     buf: [128]u8
     buf2: [128]u8
     timestamp := strings.concatenate({time.to_string_yy_mm_dd(now, buf[:]),"_", time.to_string_hms(now, buf2[:])})
-    directory := strings.concatenate({"./", REPLAY_DIRECTORY, "/", replay_info.loaded.level_path, "/"}, allocator=frame_allocator)
+    directory := strings.concatenate({"./", REPLAY_DIRECTORY, "/", level_path, "/"}, allocator=frame_allocator)
     fullpath := strings.concatenate({directory, timestamp}, allocator=frame_allocator)
 
     err := os.write_entire_file(fullpath, data)
