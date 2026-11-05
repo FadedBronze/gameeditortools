@@ -44,8 +44,8 @@ super_panel :: proc(
             state: ^ReplayState "dropdown",
             selected_replay: ^u8 "text",
         } = {
-            state = &appdata.replay_state,
-            selected_replay = &appdata.selected_replay_file
+            state = &appdata.replay_info.state,
+            selected_replay = &appdata.replay_info.selected_file
         }
         editorui.render_structure_panel(editor_ui, label, &view_data, label)
     }

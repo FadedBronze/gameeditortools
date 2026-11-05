@@ -290,6 +290,10 @@ render_multi_dropdown_floating_menu :: proc(
     frame_allocator: mem.Allocator,
     within: bool,
 ) {
+    if !editorui.custom_is_input(ui.active_id, input_index) {
+        return
+    }
+
     padding := f32(render_info.padding)
     gap := f32(render_info.gap)
     font_size := f32(render_info.font_size)

@@ -21,24 +21,24 @@ VersionedFile :: struct(T: typeid) {
 
 // loaded at start but is modified at runtime -- currently not loaded though
 LevelFile :: struct {
+    // incremented every time loaded file is overwritten
+    level_version: u32 "readonly text",
+    level_path: string "readonly text",
+
     random_seed: u32 "text",
     grid: Grid(Tile) "readonly group",
     base_entities: []Entity,
     grid_physics: PhysicsSurface "group",
     linegrid: RectangleLineGrid "group",
-    // incremented every time loaded file is overwritten
-    level_version: u32,
-    level_path: string,
 }
 
 InputReplayFile :: struct {
     encoding_version: u32, // may switch to deltas of deltas for the frames
 
     // delta between every frame - indexed by the frame number
-    delta_times: [dynamic]f32,
-
-    actions: [dynamic]GameAction,
-    action_frame: [dynamic]u32,
+    delta_times: []f32,
+    actions: []GameAction,
+    action_frame: []u32,
 
     level_path: string,
     level_version: u32,
@@ -72,6 +72,7 @@ load_level_data_from_disk :: proc(
     copy(appdata.entities, level.data.base_entities)
 
     //assert(level.data.name == level_path)
+    fmt.println(level.data.level_path)
 
     appdata.level_data = level
 
@@ -111,7 +112,25 @@ load_level_data_from_disk :: proc(
     f, err_dir := os.open(directory)
     if err_dir != nil {
         fmt.println("failed to open replay files directory", err_dir)
-        return false
+
+        if err_dir != .Not_Exist {
+            return false
+        }
+
+        err_create: os.Error
+        err_create = os.mkdir(directory)
+
+        if err_create != nil {
+            fmt.println("failed to create directory", directory, err_create)
+            return false
+        }
+        
+        fmt.println("created directory", directory)
+
+        f, err_dir = os.open(directory)
+        if err_dir != nil {
+            fmt.println("failed to open replay files directory again", err_dir)
+        }
     }
 
     files, err_read := os.read_dir(f, 0, appdata.init_mem_alloc)
@@ -128,10 +147,10 @@ load_level_data_from_disk :: proc(
     }
 
     i := 0
-    appdata.replay_files_associated_with_level = make([]string, count, appdata.init_mem_alloc)
+    appdata.replay_info.files_associated_with_level = make([]string, count, appdata.init_mem_alloc)
     for file in files {
         if file.type == .Regular {
-            appdata.replay_files_associated_with_level[i] = file.name
+            appdata.replay_info.files_associated_with_level[i] = file.name
             i += 1
         }
     }
@@ -173,12 +192,12 @@ load_config_file_from_disk :: proc(b: ^VersionedFile($T), filename: string, fram
 save_level_data_to_disk :: proc(appdata: ^AppData, level_path: string, frame_allocator: mem.Allocator) -> bool {
     level: VersionedFile(LevelFile) = appdata.level_data
     level.data.base_entities = appdata.entities[0:appdata.entities_count]
+    level.data.level_path = level_path
     data, err_marshall := cbor.marshal_into_bytes(level, allocator=frame_allocator, temp_allocator=frame_allocator)
     if err_marshall != nil {
         fmt.println("failed to marshal data", err_marshall)
         return false
     }
-    level.data.level_path = level_path
     fullpath := strings.concatenate({"./", LEVEL_DIRECTORY, "/", level_path}, allocator=frame_allocator)
     err := os.write_entire_file(fullpath, data)
     if err != nil {
@@ -189,14 +208,14 @@ save_level_data_to_disk :: proc(appdata: ^AppData, level_path: string, frame_all
     return true
 }
 
-load_selected_replay_file_from_disk :: proc(appdata: ^AppData, frame_allocator: mem.Allocator, init_allocator: mem.Allocator) -> bool {
-    replay_file: string = appdata.replay_files_associated_with_level[appdata.selected_replay_file]
+load_selected_replay_file_from_disk :: proc(replay_info: ^ReplayInfo, level_path: string, frame_allocator: mem.Allocator, init_allocator: mem.Allocator) -> bool {
+    replay_file: string = replay_info.files_associated_with_level[replay_info.selected_file]
 
     fullpath := strings.concatenate(
-       {"./", REPLAY_DIRECTORY, "/", appdata.loaded_replay.level_path, "/", replay_file }, 
+       {"./", REPLAY_DIRECTORY, "/", level_path, "/", replay_file }, 
        allocator=frame_allocator
     )
-
+    
     data, read_err := os.read_entire_file_from_path(fullpath, frame_allocator)
 
     if read_err != nil {
@@ -204,18 +223,18 @@ load_selected_replay_file_from_disk :: proc(appdata: ^AppData, frame_allocator: 
         return false
     }
 
-    unmarshal_err := cbor.unmarshal_from_bytes(data, &appdata.loaded_replay, allocator = init_allocator, temp_allocator = frame_allocator)
+    unmarshal_err := cbor.unmarshal_from_bytes(data, &replay_info.loaded, allocator = init_allocator, temp_allocator = frame_allocator)
     
     if unmarshal_err != nil {
         fmt.println("replay load from file failed", unmarshal_err)
         return false
     }
-
+    
     return true
 }
 
-save_replay_file_to_disk :: proc(appdata: ^AppData, frame_allocator: mem.Allocator, init_allocator: mem.Allocator) -> bool {
-    data, err_marshall := cbor.marshal_into_bytes(appdata.loaded_replay, allocator=init_allocator, temp_allocator=frame_allocator)
+save_replay_file_to_disk :: proc(replay_info: ^ReplayInfo, frame_allocator: mem.Allocator, init_allocator: mem.Allocator) -> bool {
+    data, err_marshall := cbor.marshal_into_bytes(replay_info.loaded, allocator=init_allocator, temp_allocator=frame_allocator)
     if err_marshall != nil {
         fmt.println("failed to marshal save replay data", err_marshall)
         return false
@@ -225,7 +244,7 @@ save_replay_file_to_disk :: proc(appdata: ^AppData, frame_allocator: mem.Allocat
     buf: [128]u8
     buf2: [128]u8
     timestamp := strings.concatenate({time.to_string_yy_mm_dd(now, buf[:]),"_", time.to_string_hms(now, buf2[:])})
-    directory := strings.concatenate({"./", REPLAY_DIRECTORY, "/", appdata.loaded_replay.level_path, "/"}, allocator=frame_allocator)
+    directory := strings.concatenate({"./", REPLAY_DIRECTORY, "/", replay_info.loaded.level_path, "/"}, allocator=frame_allocator)
     fullpath := strings.concatenate({directory, timestamp}, allocator=frame_allocator)
 
     err := os.write_entire_file(fullpath, data)
@@ -234,6 +253,7 @@ save_replay_file_to_disk :: proc(appdata: ^AppData, frame_allocator: mem.Allocat
         fmt.println("replay file write failed", err)
         return false
     }
-
+    
+    fmt.println("saved replay to: ", fullpath)
     return true
 }

@@ -49,8 +49,8 @@ Tile :: struct {
 }
 
 MAX_ENTITIES :: 10000
-INIT_MEMORY_BUFFER_SIZE :: 10000000
-FRAME_MEMORY_BUFFER_SIZE :: 5000000
+INIT_MEMORY_BUFFER_SIZE :: 100000000
+FRAME_MEMORY_BUFFER_SIZE :: 50000000
 
 ViewportDrag :: struct {
     active: editorui.ViewportIndex,
@@ -163,20 +163,9 @@ ViewportData :: struct {
     viewports: [2]WorldViewport2D,
 }
 
-ReplayState :: enum { 
-    NotRecordingReplay, 
-    ReloadLevelToStartReplay, 
-    RecordingReplay,
-    SaveReplayToDisk,
-    ReloadLevelToPlaybackReplayFromDisk,
-    PlayingBack,
-}
-
 AppData :: struct {
-    input_actions_this_frame: [8]GameAction,
-    input_actions_count: u8,
-    // used when playing back actions
-    replay_playback_action_index: u32,
+    input_actions_buffer: []GameAction,
+    input_actions_this_frame: []GameAction,
 
     pref_stats: struct {
         fps: f32 "readonly text",
@@ -206,7 +195,7 @@ AppData :: struct {
     // true state
     active_tile: GridPosition, // hovered tile essentially
 
-    // entities loaded into here from replay because cbor will marshall the empty space aswell
+    // entities loaded into here from level data because cbor will marshall the empty space aswell
     entities: []Entity,
     entities_count: u32,
 
@@ -236,13 +225,34 @@ AppData :: struct {
 
     // editorui
     editor_ui: editorui.EditorUI,
+    
+    replay_info: ReplayInfo,
+}
 
-    replay_files_associated_with_level: []string,
-    selected_replay_file: u8,
+ReplayState :: enum { 
+    NotRecordingReplay, 
+    ReloadLevelToStartReplay, 
+    RecordingReplay,
+    SaveReplayToDisk,
+    ReloadLevelToPlaybackReplayFromDisk,
+    PlayingBack,
+}
+
+ReplayInfo :: struct {
+    // used when playing back actions
+    playback_action_index: u32,
+
+    files_associated_with_level: []string,
+    selected_file: u8,
 
     // recording inputs
-    replay_state: ReplayState,
-    loaded_replay: InputReplayFile,
+    state: ReplayState,
+    loaded: InputReplayFile,
+
+    // dynamic used when recording but not in file
+    delta_times: [dynamic]f32,
+    actions: [dynamic]GameAction,
+    action_frame: [dynamic]u32,
 }
 
 // TODO will have to redo the greedy mesher to support varying properties on different tiles
@@ -253,7 +263,7 @@ PhysicsSurface :: struct {
 }
 
 _general_action :: proc(appdata: ^AppData, action_name: GameActionNames, trigger: GameActionTrigger) -> bool {
-    for action in appdata.input_actions_this_frame[0:appdata.input_actions_count] {
+    for action in appdata.input_actions_this_frame {
         if action.type == action_name && trigger == action.trigger {
             return true
         }
@@ -274,7 +284,10 @@ released_action :: proc(appdata: ^AppData, action_name: GameActionNames) -> bool
 }
 
 update_input_actions :: proc(appdata: ^AppData) {
-    appdata.input_actions_count = 0
+    //TODO UPDATE
+
+    appdata.input_actions_this_frame = appdata.input_actions_buffer
+    input_actions_count := 0
 
     action_binding := [GameActionNames]rl.KeyboardKey {
          .GoRight = .D,
@@ -285,27 +298,59 @@ update_input_actions :: proc(appdata: ^AppData) {
 
     for binding, action in action_binding {
         if rl.IsKeyPressed(binding) {
-            appdata.input_actions_this_frame[appdata.input_actions_count] = GameAction {
+            appdata.input_actions_buffer[input_actions_count] = GameAction {
                 trigger = .Pressed,
                 type = action,
             }
-            appdata.input_actions_count += 1
+            input_actions_count += 1
         } else if rl.IsKeyReleased(binding) {
-            appdata.input_actions_this_frame[appdata.input_actions_count] = GameAction {
+            appdata.input_actions_buffer[input_actions_count] = GameAction {
                 trigger = .Released,
                 type = action,
             }
-            appdata.input_actions_count += 1
+            input_actions_count += 1
         } else if rl.IsKeyDown(binding) {
-            appdata.input_actions_this_frame[appdata.input_actions_count] = GameAction {
+            appdata.input_actions_buffer[input_actions_count] = GameAction {
                 trigger = .Held,
                 type = action,
             }
-            appdata.input_actions_count += 1
+            input_actions_count += 1
         }
         
-        assert(appdata.input_actions_count < 8, message = "increase input actions per frame limit")
+        assert(input_actions_count < 8, message = "increase input actions per frame limit")
     }
+
+    appdata.input_actions_this_frame = appdata.input_actions_buffer[0:input_actions_count]
+}
+
+get_actions_and_delta_for_this_frame_from_replay :: proc(replay_info: ^ReplayInfo, frame_number: u32, buffer: []GameAction) -> (delta_time: f32, actions: []GameAction, finished: bool) {
+    actions_this_frame := 0
+    i := replay_info.playback_action_index
+
+    frame: u32 = replay_info.loaded.action_frame[i]
+    finished = false
+    for frame <= frame_number {
+        if frame != frame_number {
+            fmt.println(frame, frame_number)
+        }
+        assert(frame == frame_number)
+
+        action := replay_info.loaded.actions[i]
+
+        buffer[actions_this_frame] = action
+        actions_this_frame += 1
+
+        i += 1
+        if int(i) >= len(replay_info.loaded.action_frame) {
+            finished = true
+            break;
+        }
+        frame = replay_info.loaded.action_frame[i]
+    }
+
+    replay_info.playback_action_index = i
+
+    return replay_info.loaded.delta_times[frame_number], buffer[0:actions_this_frame], finished
 }
 
 update :: proc(appdata: ^AppData, delta: f32) {
@@ -314,64 +359,62 @@ update :: proc(appdata: ^AppData, delta: f32) {
     appdata.pref_stats.memory_used_bytes = u32(appdata.init_allocator.peak_used)
 
     // overriden if doing replay
-    if appdata.replay_state != .PlayingBack {
+    if appdata.replay_info.state != .PlayingBack {
         appdata.delta_time = delta
         update_input_actions(appdata)
     }
 
     //TODO
-    switch appdata.replay_state {
+    switch appdata.replay_info.state {
     case .ReloadLevelToStartReplay:
-        appdata.loaded_replay = {
+        load_level_data_from_disk(appdata, "default", appdata.frame_mem_alloc, appdata.init_mem_alloc)
+
+        appdata.replay_info.action_frame = make([dynamic]u32)
+        appdata.replay_info.actions = make([dynamic]GameAction)
+        appdata.replay_info.delta_times = make([dynamic]f32)
+
+        appdata.frame_number = 0
+        appdata.replay_info.state = .RecordingReplay
+    case .RecordingReplay:
+        append(&appdata.replay_info.delta_times, appdata.delta_time)
+
+        for action in appdata.input_actions_this_frame {
+            append(&appdata.replay_info.actions, action)
+            append(&appdata.replay_info.action_frame, appdata.frame_number)
+        }
+    case .SaveReplayToDisk:
+        appdata.replay_info.loaded = {
             level_path = appdata.level_path,
             level_version = appdata.level_version,
             encoding_version = 0,
-            action_frame = make([dynamic]u32),
-            actions = make([dynamic]GameAction),
-            delta_times = make([dynamic]f32),
+            action_frame = appdata.replay_info.action_frame[:],
+            actions = appdata.replay_info.actions[:],
+            delta_times = appdata.replay_info.delta_times[:],
         }
 
-        if (load_level_data_from_disk(appdata, "default", appdata.frame_mem_alloc, appdata.frame_mem_alloc)) {
-            appdata.replay_state = .RecordingReplay
-            appdata.frame_number = 0
-        }
-    case .RecordingReplay:
-        append(&appdata.loaded_replay.delta_times, appdata.delta_time)
+        save_replay_file_to_disk(&appdata.replay_info, appdata.frame_mem_alloc, appdata.init_mem_alloc)
 
-        for action in appdata.input_actions_this_frame[0:appdata.input_actions_count] {
-            append(&appdata.loaded_replay.actions, action)
-            append(&appdata.loaded_replay.action_frame, appdata.frame_number)
-        }
-    case .SaveReplayToDisk:
-        save_replay_file_to_disk(appdata, appdata.frame_mem_alloc, appdata.init_mem_alloc)
-
-        appdata.replay_state = .NotRecordingReplay
+        appdata.replay_info.state = .NotRecordingReplay
     case .ReloadLevelToPlaybackReplayFromDisk:
         load_level_data_from_disk(appdata, "default", appdata.frame_mem_alloc, appdata.init_mem_alloc)
-        load_selected_replay_file_from_disk(appdata, appdata.frame_mem_alloc, appdata.init_mem_alloc)
+        load_selected_replay_file_from_disk(&appdata.replay_info, appdata.level_path, appdata.frame_mem_alloc, appdata.init_mem_alloc)
 
-        appdata.replay_state = .PlayingBack
         appdata.frame_number = 0
-        appdata.replay_playback_action_index = 0
+        appdata.replay_info.playback_action_index = 0
+        finished := false
+
+        // begin replay
+        appdata.delta_time, appdata.input_actions_this_frame, finished = get_actions_and_delta_for_this_frame_from_replay(&appdata.replay_info, appdata.frame_number, appdata.input_actions_buffer)
+
+        assert(!finished)
+        
+        appdata.replay_info.state = .PlayingBack
     case .PlayingBack:
-        appdata.delta_time = appdata.loaded_replay.delta_times[appdata.frame_number]
-        appdata.input_actions_count = 0
-
-        i := appdata.replay_playback_action_index
-        frame: u32 = 0
-        for frame <= appdata.frame_number {
-            fmt.println(frame, appdata.frame_number)
-            assert(frame == appdata.frame_number)
-            action := appdata.loaded_replay.actions[i]
-
-            appdata.input_actions_this_frame[appdata.input_actions_count] = action
-            appdata.input_actions_count += 1
-            assert(appdata.input_actions_count < 8, "increase input actions per frame limit")
-
-            i += 1
-            frame = appdata.loaded_replay.action_frame[i]
+        finished := false
+        appdata.delta_time, appdata.input_actions_this_frame, finished = get_actions_and_delta_for_this_frame_from_replay(&appdata.replay_info, appdata.frame_number, appdata.input_actions_buffer)
+        if finished {
+            appdata.replay_info.state = .NotRecordingReplay
         }
-        appdata.replay_playback_action_index = i
     case .NotRecordingReplay:
     }        
 
@@ -811,6 +854,8 @@ entity_stub := Entity {}
 
 init_app :: proc(appdata: ^AppData, allocator: mem.Allocator) {
     // memory
+    appdata.input_actions_buffer = make([]GameAction, 16)
+
     appdata.frame_buffer = make([]u8, FRAME_MEMORY_BUFFER_SIZE)
     mem.arena_init(&appdata.frame_allocator, appdata.frame_buffer)
     appdata.frame_mem_alloc = mem.arena_allocator(&appdata.frame_allocator)
