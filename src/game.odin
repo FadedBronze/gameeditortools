@@ -232,6 +232,7 @@ AppData :: struct {
 ReplayFlags :: enum { 
     Recording,
     Playing,
+    SaveRecordingOnReplayEnd,
 }
 
 ReplayAction :: enum {
@@ -242,6 +243,7 @@ ReplayAction :: enum {
     LoadReplay,
     PlayReplay,
     RecordReplay,
+    PlayAndRecordReplay,
 }
 
 ReplayInfo :: struct {
@@ -360,6 +362,59 @@ get_actions_and_delta_for_this_frame_from_replay :: proc(replay_info: ^ReplayInf
     return replay_info.loaded.delta_times[frame_number], buffer[0:actions_this_frame], finished
 }
 
+start_play_replay :: proc(appdata: ^AppData) {
+    if appdata.replay_info.loaded.level_path == "" {
+        fmt.eprintln("replay file not loaded")
+    } else if .Playing in appdata.replay_info.flags {
+        fmt.eprintln("already playing")
+    } else {
+        load_level_data_from_disk(appdata, "default", appdata.frame_mem_alloc, appdata.init_mem_alloc)
+
+        appdata.frame_number = 0
+        appdata.replay_info.playback_action_index = 0
+        finished := false
+
+        // begin replay
+        appdata.delta_time, appdata.input_actions_this_frame, finished = get_actions_and_delta_for_this_frame_from_replay(&appdata.replay_info, appdata.frame_number, appdata.input_actions_buffer)
+
+        assert(!finished)
+        
+        appdata.replay_info.flags += { .Playing }
+    }
+}
+
+start_record_replay :: proc(appdata: ^AppData) {
+    if .Recording not_in appdata.replay_info.flags {
+        load_level_data_from_disk(appdata, "default", appdata.frame_mem_alloc, appdata.init_mem_alloc)
+
+        appdata.replay_info.action_frame = make([dynamic]u32)
+        appdata.replay_info.actions = make([dynamic]GameAction)
+        appdata.replay_info.delta_times = make([dynamic]f32)
+
+        appdata.frame_number = 0
+        appdata.replay_info.flags += { .Recording }
+    } else {
+        fmt.eprintln("already recording")
+    }
+}
+
+save_replay :: proc(appdata: ^AppData) {
+    if .Recording in appdata.replay_info.flags {
+        replay: InputReplayFile = {
+            level_path = appdata.level_path,
+            level_version = appdata.level_version,
+            encoding_version = 0,
+            action_frame = appdata.replay_info.action_frame[:],
+            actions = appdata.replay_info.actions[:],
+            delta_times = appdata.replay_info.delta_times[:],
+        }
+        
+        save_replay_file_to_disk(&replay, appdata.level_path, appdata.frame_mem_alloc, appdata.init_mem_alloc)
+    } else {
+        fmt.eprintln("not currently recording")
+    }
+}
+
 update :: proc(appdata: ^AppData, delta: f32) {
     appdata.pref_stats.fps = 1/appdata.delta_time
     // we don't dealloc from init memory
@@ -374,6 +429,7 @@ update :: proc(appdata: ^AppData, delta: f32) {
         appdata.delta_time, appdata.input_actions_this_frame, finished = get_actions_and_delta_for_this_frame_from_replay(&appdata.replay_info, appdata.frame_number, appdata.input_actions_buffer)
         if finished {
             appdata.replay_info.flags -= { .Playing }
+            save_replay(appdata)
         }
     }
 
@@ -391,69 +447,26 @@ update :: proc(appdata: ^AppData, delta: f32) {
     case .Continue:
         //do nothing
     case .RecordReplay:
-        if .Recording not_in appdata.replay_info.flags {
-            load_level_data_from_disk(appdata, "default", appdata.frame_mem_alloc, appdata.init_mem_alloc)
+        start_record_replay(appdata)
+    case .PlayAndRecordReplay:
+        start_play_replay(appdata)
+        start_record_replay(appdata)
 
-            appdata.replay_info.action_frame = make([dynamic]u32)
-            appdata.replay_info.actions = make([dynamic]GameAction)
-            appdata.replay_info.delta_times = make([dynamic]f32)
-
-            appdata.frame_number = 0
-            appdata.replay_info.flags += { .Recording }
-        } else {
-            fmt.eprintln("already recording")
-        }
-
-        appdata.replay_info.action = .Continue
-    case .SaveReplay, .StopSaveReplay, .StopReplay:
-        if appdata.replay_info.action != .SaveReplay {
-            appdata.replay_info.flags -= { .Playing }
-        }
-
-        if appdata.replay_info.action != .StopReplay {
-            if .Recording in appdata.replay_info.flags {
-                replay: InputReplayFile = {
-                    level_path = appdata.level_path,
-                    level_version = appdata.level_version,
-                    encoding_version = 0,
-                    action_frame = appdata.replay_info.action_frame[:],
-                    actions = appdata.replay_info.actions[:],
-                    delta_times = appdata.replay_info.delta_times[:],
-                }
-                
-                save_replay_file_to_disk(&replay, appdata.level_path, appdata.frame_mem_alloc, appdata.init_mem_alloc)
-            } else {
-                fmt.eprintln("not currently recording")
-            }
-        }
-
-        appdata.replay_info.action = .Continue
+        appdata.replay_info.flags += { .SaveRecordingOnReplayEnd }
+    case .StopReplay:
+        appdata.replay_info.flags -= { .Playing }
+    case .SaveReplay:
+        save_replay(appdata)
+    case .StopSaveReplay:
+        save_replay(appdata)
+        appdata.replay_info.flags -= { .Playing }
     case .LoadReplay:
         load_selected_replay_file_from_disk(&appdata.replay_info, appdata.level_path, appdata.frame_mem_alloc, appdata.init_mem_alloc)
-
-        appdata.replay_info.action = .Continue
     case .PlayReplay:
-        if appdata.replay_info.loaded.level_path == "" {
-            fmt.eprintln("replay file not loaded")
-        } else if .Playing in appdata.replay_info.flags {
-            fmt.eprintln("already playing")
-        } else {
-            load_level_data_from_disk(appdata, "default", appdata.frame_mem_alloc, appdata.init_mem_alloc)
-
-            appdata.frame_number = 0
-            appdata.replay_info.playback_action_index = 0
-            finished := false
-
-            // begin replay
-            appdata.delta_time, appdata.input_actions_this_frame, finished = get_actions_and_delta_for_this_frame_from_replay(&appdata.replay_info, appdata.frame_number, appdata.input_actions_buffer)
-
-            assert(!finished)
-            
-            appdata.replay_info.flags += { .Playing }
-        }
-
-        appdata.replay_info.action = .Continue
+        start_play_replay(appdata)
     }        
+
+    appdata.replay_info.action = .Continue
 
     dt := f64(appdata.delta_time)
     b := appdata.grid.bounds
