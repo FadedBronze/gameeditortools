@@ -33,6 +33,23 @@ week 3 stuff is work in progress and technically your experiencing some week 3 u
 
 During the third second week, I have been working on reworking the way type information is read (from a runtime model to compile time code generation) in order to see what I like better right now I am bug fixing the code and testing out how I am going to coordinate all the files and what can be updated
 
+# Week 2
+
+devlog 2:
+created camera rooms where camera locks onto that area
+upgraded UI and made using a bit easier by having each correspond to left or right panel for each "view"
+added more flags for showing the camera boxes
+updated the movement script to be more fun and fast
+added ways to modify entities like delete and change properties from editor
+added way to change level bounds from editor
+
+devlog 1:
+added flags to each viewport and dedicated one as the game viewport also removed a lot of code in favor of using json and cbor for binary and config data respectively and things work rn a lot of bugfixing work is left to do but now I have a basic camera following the player in one viewport and saving and loading "replays" works a bit better next thing is maybe input replaying
+
 # Releases
 You can find windows releases in the side (although its being developed on linux - im pretty sure linux binaries aren't transferrable so im not adding those) 
 although I think should be easier to just build if you have the odin compiler installed
+
+<img width="1919" height="1079" alt="image" src="https://github.com/user-attachments/assets/d5255a30-b5a8-4794-982e-02fe301ee464" />
+
+
