@@ -243,7 +243,8 @@ save_replay_file_to_disk :: proc(replay_file: ^InputReplayFile, level_path: stri
     now := time.now()
     buf: [128]u8
     buf2: [128]u8
-    timestamp := strings.concatenate({time.to_string_yy_mm_dd(now, buf[:]),"_", time.to_string_hms(now, buf2[:])})
+    hms, _ := strings.replace(time.to_string_hms(now, buf2[:]), ":", "-", 0, frame_allocator)
+    timestamp := strings.concatenate({time.to_string_yy_mm_dd(now, buf[:]), "_", hms})
 
     replay_file.replay_name = timestamp
 
