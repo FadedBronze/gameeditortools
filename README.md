@@ -46,6 +46,19 @@ added way to change level bounds from editor
 devlog 1:
 added flags to each viewport and dedicated one as the game viewport also removed a lot of code in favor of using json and cbor for binary and config data respectively and things work rn a lot of bugfixing work is left to do but now I have a basic camera following the player in one viewport and saving and loading "replays" works a bit better next thing is maybe input replaying
 
+# Week 3
+
+mega devlog:
+- added input playback and saving replays loading ect 
+- this will allow me to do automated testing after I work out any remaining issues with it
+- updated editor UI to support replays
+- recorded a demo of the replay (technically not coding but I thought I would list it)
+- fixed a some bugs (strings not rendering in editor UI properly)
+- I also added a setting that allows me to play back a replay into another replay (its recording and playing at the same time)
+- I plan to compare the replays I might loop this over and over and over eventually then use it as a another stability test
+- replays go really fast or slow depending on your hardware because the time deltas between the frames are saved during recording to ensure determinism
+- I plan to have some sort of smart sleeping to slow it down to the expected time so the replay is also smooth to look at 
+
 # Releases
 You can find windows releases in the side (although its being developed on linux - im pretty sure linux binaries aren't transferrable so im not adding those) 
 although I think should be easier to just build if you have the odin compiler installed
