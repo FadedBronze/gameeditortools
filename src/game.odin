@@ -471,12 +471,6 @@ update :: proc(appdata: ^AppData, delta: f32) {
     dt := f64(appdata.delta_time)
     b := appdata.grid.bounds
 
-    for y in b.y..<b.height+b.y {
-        for x in b.x..<b.width+b.x {
-            //TODO?
-        }
-    }
-
     for i in 0..<appdata.entities_count {
         entity := &appdata.entities[i]
 

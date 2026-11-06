@@ -52,4 +52,4 @@ although I think should be easier to just build if you have the odin compiler in
 
 <img width="1919" height="1079" alt="image" src="https://github.com/user-attachments/assets/d5255a30-b5a8-4794-982e-02fe301ee464" />
 
-
+https://github.com/user-attachments/assets/e3975ae4-1739-41f9-9cd6-390d4ed6ffff

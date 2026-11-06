@@ -33,6 +33,7 @@ LevelFile :: struct {
 }
 
 InputReplayFile :: struct {
+    replay_name: string "readonly text",
     encoding_version: u32 "readonly text", // may switch to deltas of deltas for the frames
 
     // delta between every frame - indexed by the frame number
@@ -224,6 +225,9 @@ load_selected_replay_file_from_disk :: proc(replay_info: ^ReplayInfo, level_path
     }
 
     unmarshal_err := cbor.unmarshal_from_bytes(data, &replay_info.loaded, allocator = init_allocator, temp_allocator = frame_allocator)
+
+    // some replays don't have names in the file right now
+    replay_info.loaded.replay_name = replay_file
     
     if unmarshal_err != nil {
         fmt.println("replay load from file failed", unmarshal_err)
@@ -236,16 +240,19 @@ load_selected_replay_file_from_disk :: proc(replay_info: ^ReplayInfo, level_path
 save_replay_file_to_disk :: proc(replay_file: ^InputReplayFile, level_path: string, frame_allocator: mem.Allocator, init_allocator: mem.Allocator) -> bool {
     assert(replay_file.level_path == level_path)
 
+    now := time.now()
+    buf: [128]u8
+    buf2: [128]u8
+    timestamp := strings.concatenate({time.to_string_yy_mm_dd(now, buf[:]),"_", time.to_string_hms(now, buf2[:])})
+
+    replay_file.replay_name = timestamp
+
     data, err_marshall := cbor.marshal_into_bytes(replay_file^, allocator=init_allocator, temp_allocator=frame_allocator)
     if err_marshall != nil {
         fmt.println("failed to marshal save replay data", err_marshall)
         return false
     }
 
-    now := time.now()
-    buf: [128]u8
-    buf2: [128]u8
-    timestamp := strings.concatenate({time.to_string_yy_mm_dd(now, buf[:]),"_", time.to_string_hms(now, buf2[:])})
     directory := strings.concatenate({"./", REPLAY_DIRECTORY, "/", level_path, "/"}, allocator=frame_allocator)
     fullpath := strings.concatenate({directory, timestamp}, allocator=frame_allocator)
 

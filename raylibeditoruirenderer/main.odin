@@ -546,7 +546,7 @@ render_custom_widget :: proc(
                 &text_input,
                 active,
                 transmute(ut.Bounds(f32))render_command.boundingBox, 
-                "", "", 
+                "", input_data.text^, 
                 editor_ui.render_infos.text, 
                 allocator,
                 frame_allocator,
