@@ -374,7 +374,7 @@ custom_component :: proc(editor_ui: ^EditorUI, widget: ed.InputIndex, frame_allo
     switch v in input {
     case ed.Toggle:
         sizing = { width = size, height = size }
-    case ed.TextInputMutableBuffer:
+    case ed.StringDropdown:
         sizing = { width = clay.SizingGrow({}), height = size }
     case ed.TextInputString:
         sizing = { width = clay.SizingGrow({}), height = size }
@@ -454,6 +454,9 @@ custom_component :: proc(editor_ui: ^EditorUI, widget: ed.InputIndex, frame_allo
                     dropdown_menu(widget, height)
                 case ed.Dropdown(u64):
                     height := calculate_dropdown_height(len(v.enum_names), editor_ui.render_infos.dropdown)
+                    dropdown_menu(widget, height)
+                case ed.StringDropdown:
+                    height := calculate_dropdown_height(len(v.values^), editor_ui.render_infos.dropdown)
                     dropdown_menu(widget, height)
                 case ed.MultiDropdown:
                     multi_dropdown := editor_ui.active_data.(MultiDropdown)

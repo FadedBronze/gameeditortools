@@ -9,7 +9,6 @@ import "project:editorui"
 import ut "project:utils"
 import clay "project:clay-odin"
 import rn "project:raylibeditoruirenderer"
-
 import rl "vendor:raylib"
 
 Direction :: enum u8 {
@@ -251,7 +250,7 @@ ReplayInfo :: struct {
     playback_action_index: u32,
 
     files_associated_with_level: []string,
-    selected_file: u8,
+    selected_file: u32,
 
     // recording inputs
     flags: bit_set[ReplayFlags],

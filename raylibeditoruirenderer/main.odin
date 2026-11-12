@@ -152,6 +152,152 @@ clay_raylib_render :: proc(
     }
 }
 
+render_string_dropdown_input :: proc(
+    editor_ui: ^editorui.EditorUI,
+    render_command: clay.RenderCommand, 
+    input_index: ed.InputIndex,
+    render_info: editorui.DropdownRenderInfo,
+    within: bool,
+
+    readonly: bool,
+    selected: u32,
+    entry_names: []string,
+) {
+    if len(entry_names) == 0 { 
+        return
+    }
+
+    padding := f32(render_info.padding)
+    font_size := f32(render_info.font_size)
+
+    mouse_within := ut.position_within_bounds(auto_cast rl.GetMousePosition(), transmute(ut.Bounds(f32))render_command.boundingBox)
+
+    rl.DrawRectangleRec(auto_cast render_command.boundingBox, auto_cast render_info.back_color)
+
+    active := editorui.custom_is_input(editor_ui.active_id, input_index)
+    
+    if mouse_within && within && rl.IsMouseButtonPressed(.LEFT) {
+        editor_ui.active_id = editorui.custom_input_id(input_index)
+    }
+
+    selected_name := entry_names[selected]
+
+    buf: [64]u8
+    length := len(selected_name) > 0 ? copy_from_string(buf[:], selected_name) : 0
+
+    buf[length] = '\x00'
+    
+    length += 1
+
+    if !active {
+        rl.DrawTextEx(
+            get_font(&font_table, 0, u16(editor_ui.theme.font_size)), 
+            strings.unsafe_string_to_cstring(string(buf[:length])),
+            {f32(padding + render_command.boundingBox.x),
+            f32(render_command.boundingBox.y)},
+            f32(font_size),
+            f32(editor_ui.theme.letter_spacing),
+            auto_cast render_info.text_color,
+        )
+    }
+}
+
+render_string_dropdown_floating_menu :: proc(
+    editor_ui: ^editorui.EditorUI,
+    render_command: clay.RenderCommand, 
+    input_index: ed.InputIndex,
+    render_info: editorui.DropdownRenderInfo,
+    within: bool,
+
+    readonly: bool,
+    selected: u32,
+    entry_names: []string,
+) -> (select: u32) {
+    select = max(u32)
+
+    if len(entry_names) == 0 { 
+        return
+    }
+
+    padding := f32(render_info.padding)
+    gap := f32(render_info.gap)
+    font_size := f32(render_info.font_size)
+
+    input_bounds := ut.Bounds(f32) {
+        x = render_command.boundingBox.x,
+        y = render_command.boundingBox.y,
+        width = render_command.boundingBox.width,
+        height = font_size,
+    }
+
+    mouse_within := ut.position_within_bounds(auto_cast rl.GetMousePosition(), transmute(ut.Bounds(f32))render_command.boundingBox)
+    active := editorui.custom_is_input(editor_ui.active_id, input_index)
+
+    rl.DrawRectangleRec(auto_cast render_command.boundingBox, auto_cast render_info.back_color)
+    
+    if !mouse_within && rl.IsMouseButtonPressed(.LEFT) && active {
+        editor_ui.active_id = editorui.custom_input_id(max(ed.InputIndex))
+    }
+    
+    rl.DrawRectangleRec(auto_cast render_command.boundingBox, auto_cast render_info.back_color)
+
+    rl.DrawRectangleLinesEx(auto_cast render_command.boundingBox, 1, auto_cast auto_cast render_info.outline_color)
+    rl.DrawRectangleLinesEx(transmute(rl.Rectangle)input_bounds, 1, auto_cast render_info.border_color)
+
+    for i in 0..<len(entry_names) {
+        name := entry_names[i]
+        offset := f32(i+1) * (gap + font_size)
+
+        buf: [64]u8
+        length := copy_from_string(buf[:], name)
+        buf[length] = '\x00'
+        length += 1
+
+        bounds := ut.Bounds(f32) {
+            x = render_command.boundingBox.x,
+            y = render_command.boundingBox.y + offset + f32(render_info.inner_padding)-f32(render_info.gap)/2,
+            width = render_command.boundingBox.width,
+            height = f32(render_info.font_size)+f32(render_info.gap),
+        }
+
+        if ut.position_within_bounds(auto_cast rl.GetMousePosition(), bounds) {
+            rl.DrawRectangleRec(transmute(rl.Rectangle)bounds, auto_cast ut.change_opacity(ut.get_contrasting_color(render_info.back_color), 20))
+
+            if rl.IsMouseButtonDown(.LEFT) {
+                select = u32(i)
+                editor_ui.active_id = editorui.custom_input_id(max(ed.InputIndex))
+            }
+        }
+
+        rl.DrawTextEx(
+            get_font(&font_table, 0, u16(render_info.font_size)), 
+            strings.unsafe_string_to_cstring(string(buf[:length])),
+            { f32(padding + render_command.boundingBox.x), f32(render_command.boundingBox.y + offset + f32(render_info.inner_padding)) },
+            f32(font_size),
+            f32(render_info.letter_spacing),
+            auto_cast render_info.text_color,
+        )
+    }
+
+    selected_name := entry_names[selected]
+    buf: [64]u8
+    length := copy_from_string(buf[:], selected_name)
+    buf[length] = '\x00'
+    length += 1
+
+    rl.DrawTextEx(
+        get_font(&font_table, 0, u16(render_info.font_size)), 
+        strings.unsafe_string_to_cstring(string(buf[:length])),
+        {f32(padding + render_command.boundingBox.x),
+        f32(render_command.boundingBox.y)},
+        f32(font_size),
+        f32(editor_ui.theme.letter_spacing),
+        auto_cast render_info.text_color,
+    )
+    
+    return select
+}
+
 render_dropdown_floating_menu :: proc(
     editor_ui: ^editorui.EditorUI,
     render_command: clay.RenderCommand, 
@@ -445,7 +591,7 @@ render_multi_dropdown_input :: proc(
         }
     }
 }
-
+import "core:fmt"
 render_custom_widget :: proc(
     editor_ui: ^editorui.EditorUI, 
     render_command: clay.RenderCommand, 
@@ -506,6 +652,11 @@ render_custom_widget :: proc(
             render_dropdown_floating_menu(editor_ui, render_command, input_data, input_index, render_infos.dropdown, within)
         case ed.MultiDropdown:
             render_multi_dropdown_floating_menu(editor_ui, render_command, input_data, input_index, render_infos.dropdown, frame_allocator, within)
+        case ed.StringDropdown:
+            select := render_string_dropdown_floating_menu(editor_ui, render_command, input_index, render_infos.dropdown, within, input_data.readonly, input_data.selected^, input_data.values^)
+            if select != max(u32) {
+                input_data.selected^ = select
+            }
         case:
             unreachable()
         }
@@ -518,6 +669,8 @@ render_custom_widget :: proc(
         within := clay.PointerOver(clay_id)
 
         switch input_data in input {
+        case ed.StringDropdown:
+            render_string_dropdown_input(editor_ui, render_command, input_index, render_infos.dropdown, within, input_data.readonly, input_data.selected^, input_data.values^)
         case ed.MultiDropdown:
             render_multi_dropdown_input(&editor_ui.active, render_command, input_data, input_index, render_infos.dropdown, render_infos.text, allocator, frame_allocator, within)
         case ed.Dropdown(u8):
@@ -563,8 +716,6 @@ render_custom_widget :: proc(
                 editor_ui.active_id = editorui.custom_input_id(max(ed.InputIndex))
                 input_data.text^ = string(text_input.buf[0:text_input.buf_len])
             }
-        case ed.TextInputMutableBuffer:
-            unimplemented()
         case ed.NumberInput(f64):
             render_number_input(editor_ui, render_command, input_data, input_index, render_infos.slider, render_infos.text, allocator, frame_allocator, within)
         case ed.NumberInput(i32):

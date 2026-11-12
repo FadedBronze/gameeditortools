@@ -34,12 +34,6 @@ TextInputString :: struct {
     readonly: bool,
 }
 
-TextInputMutableBuffer :: struct {
-    placeholder: string,
-    text: EditableText,
-    readonly: bool,
-}
-
 Dropdown :: struct(T: typeid) {
     enum_names: []string,
     enum_values: []rn.Type_Info_Enum_Value,
@@ -55,11 +49,22 @@ MultiDropdown :: struct {
     readonly: bool,
 }
 
+StringDropdownData :: struct {
+    values: ^[]string,
+    selected: ^u32,
+}
+
+StringDropdown :: struct {
+    values: ^[]string,
+    selected: ^u32,
+    readonly: bool,
+}
+
 InputComponent :: union {
     Toggle,
     TextInputString,
-    TextInputMutableBuffer,
     MultiDropdown,
+    StringDropdown,
     Dropdown(u8),
     Dropdown(u16),
     Dropdown(u32),
@@ -203,7 +208,25 @@ create_panel_recurse_struct_fields :: proc(
             }
         case rn.Type_Info_Named:
             if .Empty not_in tag.flags {
-                create_panel_recurse_struct_fields(s, o, tag, info.base, panel_pool, parent, parent_idx, name, readonly)
+                if info.name == "StringDropdownData" && info.pkg == "editor" {
+                    sddata := cast(^StringDropdownData)cast(^rawptr)(cast(uintptr)s+o)
+
+                    append(inputs, StringDropdown {
+                        selected = sddata.selected,
+                        values = sddata.values,
+                        readonly = readonly,
+                    })
+
+                    append(groups, Group {
+                        type = .Component,
+                        input = InputIndex(len(inputs)-1),
+                        label = name,
+                    })
+                    new_size := GroupIndex(len(groups)-1)
+                    parent.subgroup[parent_idx] = new_size
+                } else {
+                    create_panel_recurse_struct_fields(s, o, tag, info.base, panel_pool, parent, parent_idx, name, readonly)
+                }
             }
 
             //if info.name == "EditableSlice" {

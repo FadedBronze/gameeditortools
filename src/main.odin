@@ -5,6 +5,7 @@ import clay "project:clay-odin"
 import editorui "project:editorui"
 import ut "project:utils"
 import rn "project:raylibeditoruirenderer"
+import ed "project:editor"
 
 import "core:slice"
 import "core:strings"
@@ -40,16 +41,30 @@ super_panel :: proc(
     
     if .Replays in appdata.editor_settings.open_views && view_placements[.Replays] == placement {
         label := "Replay"
-        view_data: struct {
-            state: ^ReplayAction "dropdown",
-            selected_replay: ^u8 "text",
-            replay_file: ^InputReplayFile "group",
-        } = {
-            state = &appdata.replay_info.action,
-            selected_replay = &appdata.replay_info.selected_file,
-            replay_file = &appdata.replay_info.loaded,
+
+        // used for replay info UI
+        ReplayInfoUI :: struct {
+            selected_file: ed.StringDropdownData "group",
+            flags: ^bit_set[ReplayFlags] "dropdown",
+            action: ^ReplayAction "dropdown",
+            loaded: ^InputReplayFile "group",
         }
-        editorui.render_structure_panel(editor_ui, label, &view_data, label)
+
+        if len(appdata.replay_info.files_associated_with_level) > 0 {
+            //fmt.println(appdata.replay_info.files_associated_with_level, appdata.replay_info.selected_file)
+
+            view_data: ReplayInfoUI = {
+                action = &appdata.replay_info.action,
+                flags = &appdata.replay_info.flags,
+                selected_file = {
+                    selected = &appdata.replay_info.selected_file,
+                    values = &appdata.replay_info.files_associated_with_level,
+                },
+                loaded = &appdata.replay_info.loaded,
+            }
+
+            editorui.render_structure_panel(editor_ui, label, &view_data, label)
+        }
     }
 
     if .WorldViewports in appdata.editor_settings.open_views && view_placements[.WorldViewports] == placement {
