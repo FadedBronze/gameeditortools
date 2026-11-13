@@ -60,11 +60,20 @@ StringDropdown :: struct {
     readonly: bool,
 }
 
+EnumButtonStrip :: struct {
+    enum_names: []string,
+    enum_values: []rn.Type_Info_Enum_Value,
+    // enum as array of bytes
+    current: []u8,
+    readonly: bool,
+}
+
 InputComponent :: union {
     Toggle,
     TextInputString,
     MultiDropdown,
     StringDropdown,
+    EnumButtonStrip,
     Dropdown(u8),
     Dropdown(u16),
     Dropdown(u32),
@@ -106,6 +115,7 @@ TagFlags :: bit_set[enum {
     Empty,
     Text,
     Dropdown,
+    ButtonStrip,
     Readonly,
 }]
 
@@ -158,6 +168,9 @@ parse_tag :: proc(tag: string) -> ParsedTag {
         }
         if strings.contains(str, "dropdown") {
             res.flags += {.Dropdown}
+        }
+        if strings.contains(str, "buttonstrip") {
+            res.flags += {.ButtonStrip}
         }
         if strings.contains(str, "length") {
             res.flags += {.Length}
@@ -343,6 +356,22 @@ create_panel_recurse_struct_fields :: proc(
             new_size := GroupIndex(len(groups)-1)
             parent.subgroup[parent_idx] = new_size
         case rn.Type_Info_Enum:
+            if .ButtonStrip in tag.flags {
+                append(inputs, EnumButtonStrip {
+                    current = slice.from_ptr(cast(^u8)(cast(uintptr)s+o), info.base.size),
+                    enum_names = info.names,
+                    enum_values = info.values,
+                    readonly = readonly,
+                })
+
+                append(groups, Group {
+                    type = .Component,
+                    input = InputIndex(len(inputs)-1),
+                    label = name,
+                })
+                new_size := GroupIndex(len(groups)-1)
+                parent.subgroup[parent_idx] = new_size
+            }
             if .Dropdown in tag.flags {
                 #partial switch v in info.base.variant {
                 case rn.Type_Info_Integer:

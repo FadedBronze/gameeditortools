@@ -591,7 +591,7 @@ render_multi_dropdown_input :: proc(
         }
     }
 }
-import "core:fmt"
+
 render_custom_widget :: proc(
     editor_ui: ^editorui.EditorUI, 
     render_command: clay.RenderCommand, 
@@ -669,6 +669,8 @@ render_custom_widget :: proc(
         within := clay.PointerOver(clay_id)
 
         switch input_data in input {
+        case ed.EnumButtonStrip:
+            unimplemented()
         case ed.StringDropdown:
             render_string_dropdown_input(editor_ui, render_command, input_index, render_infos.dropdown, within, input_data.readonly, input_data.selected^, input_data.values^)
         case ed.MultiDropdown:

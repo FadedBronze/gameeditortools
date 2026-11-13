@@ -46,7 +46,7 @@ super_panel :: proc(
         ReplayInfoUI :: struct {
             selected_file: ed.StringDropdownData "group",
             flags: ^bit_set[ReplayFlags] "dropdown",
-            action: ^ReplayAction "dropdown",
+            action: ^ReplayAction "buttonstrip",
             loaded: ^InputReplayFile "group",
         }
 
@@ -256,8 +256,10 @@ error_handler :: proc "c" (errorData: clay.ErrorData) {
 }
 
 main :: proc() { 
-    rl.InitWindow(0, 0, "yay")
-    rl.SetWindowState({.FULLSCREEN_MODE})
+    rl.InitWindow(1080, 600, "yay")
+    //rl.InitWindow(0, 0, "yay")
+    //rl.SetWindowState({.FULLSCREEN_MODE})
+    rl.SetWindowState({.WINDOW_RESIZABLE})
 
     appdata: AppData
     appdata.level = &appdata.level_data.data

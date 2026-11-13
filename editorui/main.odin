@@ -4,6 +4,7 @@ import ed   "project:editor"
 import clay "project:clay-odin"
 import ut   "project:utils"
 import      "project:editorui"
+import "core:encoding/endian"
 
 import "core:strings"
 import "core:mem"
@@ -29,6 +30,22 @@ RenderInfos :: struct {
     text: TextInputRenderInfo,
     dropdown: DropdownRenderInfo,
     toggle: ToggleRenderInfo,
+    buttonstrip: ButtonStripRenderInfo,
+}
+
+ButtonStripRenderInfo :: struct {
+    font_size: u8,
+    letter_spacing: u8,
+    button_padding: u8,
+    outer_padding: u8,
+    gap: u8,
+
+    flags: bit_set[enum { Grow, AlignLeft }],
+
+    back_color: ut.Color,
+    button_color: ut.Color,
+    text_color: ut.Color,
+    outline_color: ut.Color,
 }
 
 DropdownRenderInfo :: struct {
@@ -202,7 +219,19 @@ create_render_infos :: proc(theme: EditorUITheme) -> RenderInfos {
         toggle = ToggleRenderInfo {
             false_color = widget_color_dark,
             true_color = widget_color,
-        }
+        },
+        buttonstrip = ButtonStripRenderInfo {
+            flags = {.Grow},
+            gap = 3,
+            button_padding = 3,
+            outer_padding = 3,
+            font_size = theme.font_size,
+            letter_spacing = theme.letter_spacing,
+            back_color = widget_color,
+            button_color = widget_color_placeholder,
+            outline_color = theme.highlight_color,
+            text_color = theme.text_color,
+        }    
     }
     return render_infos
 }
@@ -376,6 +405,8 @@ custom_component :: proc(editor_ui: ^EditorUI, widget: ed.InputIndex, frame_allo
         sizing = { width = size, height = size }
     case ed.StringDropdown:
         sizing = { width = clay.SizingGrow({}), height = size }
+    case ed.EnumButtonStrip:
+        //NA
     case ed.TextInputString:
         sizing = { width = clay.SizingGrow({}), height = size }
     case ed.NumberInput(f32):
@@ -433,48 +464,93 @@ custom_component :: proc(editor_ui: ^EditorUI, widget: ed.InputIndex, frame_allo
         }) {}
     }
 
-    if clay.UI(widget_id)({ 
-        layout = { 
-            sizing = sizing,
-            layoutDirection = .TopToBottom,
-            padding = clay.Padding { 0, 0, 0, 0 },
-        },
-        custom = {customData = transmute(rawptr)(custom_id)}
-    }) {
-        if custom_is_input(editor_ui.active_id, widget) {
-            #partial switch v in input {
-                case ed.Dropdown(u8):
-                    height := calculate_dropdown_height(len(v.enum_names), editor_ui.render_infos.dropdown)
-                    dropdown_menu(widget, height)
-                case ed.Dropdown(u16):
-                    height := calculate_dropdown_height(len(v.enum_names), editor_ui.render_infos.dropdown)
-                    dropdown_menu(widget, height)
-                case ed.Dropdown(u32):
-                    height := calculate_dropdown_height(len(v.enum_names), editor_ui.render_infos.dropdown)
-                    dropdown_menu(widget, height)
-                case ed.Dropdown(u64):
-                    height := calculate_dropdown_height(len(v.enum_names), editor_ui.render_infos.dropdown)
-                    dropdown_menu(widget, height)
-                case ed.StringDropdown:
-                    height := calculate_dropdown_height(len(v.values^), editor_ui.render_infos.dropdown)
-                    dropdown_menu(widget, height)
-                case ed.MultiDropdown:
-                    multi_dropdown := editor_ui.active_data.(MultiDropdown)
+    if buttonstrip, ok := input.(ed.EnumButtonStrip); ok {
+        if clay.UI(widget_id)({ 
+            backgroundColor = ut.color_to_f32list(editor_ui.render_infos.buttonstrip.back_color),
+            layout = { 
+                layoutDirection = .TopToBottom,
+                sizing = { 
+                    width = clay.SizingGrow(), 
+                    height = clay.SizingGrow(),
+                },
+                childGap = auto_cast editor_ui.render_infos.buttonstrip.gap,
+                padding = clay.PaddingAll(auto_cast editor_ui.render_infos.buttonstrip.outer_padding),
+            },
+        }) {
+            // ignore first enum value
+            for i in 1..<len(buttonstrip.enum_names) {
+                name := buttonstrip.enum_names[i]
+                value := buttonstrip.enum_values[i]
+                //val: [4]u8 
+                //copy(val[len(buttonstrip.current)-4:], buttonstrip.current)
+                //val_int := transmute(u32)val
+                
+                if clay.UI(widget_id)({ 
+                    backgroundColor = ut.color_to_f32list(editor_ui.render_infos.buttonstrip.button_color),
+                    layout = { 
+                        sizing = {
+                            width = clay.SizingGrow(),
+                            height = clay.SizingGrow(),
+                        },
+                        layoutDirection = .TopToBottom,
+                        padding = clay.PaddingAll(auto_cast editor_ui.render_infos.buttonstrip.button_padding),
+                    },
+                }) {
+                    clay.Text(name, {
+                        textColor = ut.color_to_f32list(editor_ui.render_infos.buttonstrip.text_color),
+                        fontSize = u16(editor_ui.render_infos.buttonstrip.font_size),
+                        letterSpacing = u16(editor_ui.render_infos.buttonstrip.letter_spacing),
+                        textAlignment = .Left,
+                        wrapMode = .Words,
+                    })
+                }
+            }
+        }
+    } else {
+        if clay.UI(widget_id)({ 
+            layout = { 
+                sizing = sizing,
+                layoutDirection = .TopToBottom,
+                padding = clay.Padding { 0, 0, 0, 0 },
+            },
+            custom = {customData = transmute(rawptr)(custom_id)}
+        }) {
+            if custom_is_input(editor_ui.active_id, widget) {
+                #partial switch v in input {
+                    case ed.EnumButtonStrip:
+                    case ed.Dropdown(u8):
+                        height := calculate_dropdown_height(len(v.enum_names), editor_ui.render_infos.dropdown)
+                        dropdown_menu(widget, height)
+                    case ed.Dropdown(u16):
+                        height := calculate_dropdown_height(len(v.enum_names), editor_ui.render_infos.dropdown)
+                        dropdown_menu(widget, height)
+                    case ed.Dropdown(u32):
+                        height := calculate_dropdown_height(len(v.enum_names), editor_ui.render_infos.dropdown)
+                        dropdown_menu(widget, height)
+                    case ed.Dropdown(u64):
+                        height := calculate_dropdown_height(len(v.enum_names), editor_ui.render_infos.dropdown)
+                        dropdown_menu(widget, height)
+                    case ed.StringDropdown:
+                        height := calculate_dropdown_height(len(v.values^), editor_ui.render_infos.dropdown)
+                        dropdown_menu(widget, height)
+                    case ed.MultiDropdown:
+                        multi_dropdown := editor_ui.active_data.(MultiDropdown)
 
-                    count := -1
-                    i := 0
-                    ok := true
-                    for ok {
-                        count += 1
-                        next_i: int
-                        _, next_i, ok = iterate_dropdown_entries(i, v, transmute(string)multi_dropdown.text.buf[0:multi_dropdown.text.buf_len], frame_allocator)
-                        i = next_i
-                    }
+                        count := -1
+                        i := 0
+                        ok := true
+                        for ok {
+                            count += 1
+                            next_i: int
+                            _, next_i, ok = iterate_dropdown_entries(i, v, transmute(string)multi_dropdown.text.buf[0:multi_dropdown.text.buf_len], frame_allocator)
+                            i = next_i
+                        }
 
-                    height := calculate_dropdown_height(count, editor_ui.render_infos.dropdown)
-                    dropdown_menu(widget, height)
-                case:
-                    // do nothing
+                        height := calculate_dropdown_height(count, editor_ui.render_infos.dropdown)
+                        dropdown_menu(widget, height)
+                    case:
+                        // do nothing
+                }
             }
         }
     }
