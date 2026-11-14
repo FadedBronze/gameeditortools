@@ -128,7 +128,7 @@ EditorState :: enum {
 }
 
 ControlPanel :: struct { 
-    state: EditorState "dropdown",
+    state: EditorState "buttonstrip",
 }
 
 IndexType :: enum u16 {

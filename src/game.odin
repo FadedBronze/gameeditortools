@@ -144,14 +144,18 @@ GameActionNames :: enum {
     RushDown,
 }
 
-Actions :: bit_set[enum {
+Actions :: enum {
+    DoNothing,
     LoadDataFromDisk,
     RecomputeGridHitboxes,
-    SaveLevelOnExit,
-    SaveAllConfigsOnExit,
     OverwriteSelectedEntity,
     ResizeWorldBounds,
     DeleteSelectedEntityID,
+}
+
+OnExitActions :: bit_set[enum {
+    SaveLevel,
+    SaveAllConfigs,
 }]
 
 ViewportData :: struct {
@@ -176,7 +180,8 @@ AppData :: struct {
     frame_number: u32,
 
     control: struct {
-        actions: Actions "dropdown",
+        actions: Actions "buttonstrip",
+        on_exit: OnExitActions "dropdown",
         load_level: enum {
             DefaultLevel,
         } "dropdown",
@@ -567,32 +572,27 @@ update :: proc(appdata: ^AppData, delta: f32) {
         }
     }
     
-    if .LoadDataFromDisk in appdata.control.actions {
+    if  appdata.control.actions == .LoadDataFromDisk {
         load_level_data_from_disk(appdata, "default", appdata.frame_mem_alloc, appdata.init_mem_alloc)
-
-        appdata.control.actions -= {.LoadDataFromDisk}
     }
 
-    if .RecomputeGridHitboxes in appdata.control.actions {
+    if  appdata.control.actions == .RecomputeGridHitboxes{
         appdata.computed_simplified_collision_hitboxes = greedy_mesh_grid_into_worldspace_aabb_bounds_list(appdata.grid, appdata.linegrid);
-
-        appdata.control.actions -= {.RecomputeGridHitboxes}
     }
 
-    if .OverwriteSelectedEntity in appdata.control.actions {
+    if  appdata.control.actions == .OverwriteSelectedEntity{
         appdata.entities[appdata.editor_settings.selected_entity_id-1] = appdata.editor_settings.selected_entity
-        appdata.control.actions -= { .OverwriteSelectedEntity }
     }
 
-    if .ResizeWorldBounds in appdata.control.actions {
+    if  appdata.control.actions == .ResizeWorldBounds{
         resize_grid(&appdata.grid, appdata.new_bounds, appdata.init_mem_alloc)
-        appdata.control.actions -= { .ResizeWorldBounds }
     }
 
-    if .DeleteSelectedEntityID in appdata.control.actions {
+    if  appdata.control.actions == .DeleteSelectedEntityID{
         appdata.entities[appdata.editor_settings.selected_entity_id-1].flags -= { .Something }
-        appdata.control.actions -= { .DeleteSelectedEntityID }
     }
+    
+    appdata.control.actions = .DoNothing
 
     appdata.viewports[appdata.game_viewport].camera_position = follow_player(&appdata.camera_follow, appdata, appdata.delta_time)
 
@@ -920,7 +920,7 @@ init_app :: proc(appdata: ^AppData, allocator: mem.Allocator) {
     //spawn_land_borders(appdata)
     
     // hitboxes
-    appdata.control.actions += { .LoadDataFromDisk }
+    appdata.control.actions = .LoadDataFromDisk
 
     // ===== editor ui
     load_config_file_from_disk(
@@ -956,7 +956,7 @@ init_app :: proc(appdata: ^AppData, allocator: mem.Allocator) {
 }
 
 exit_app :: proc(appdata: ^AppData) { 
-    if .SaveLevelOnExit in appdata.control.actions {
+    if .SaveLevel in appdata.control.on_exit {
         level_data: VersionedFile(LevelFile) = {
             data = appdata.level^,
             version = LEVEL_REPLAY_FILE_VERSION,
@@ -969,7 +969,7 @@ exit_app :: proc(appdata: ^AppData) {
         //}
     }    
 
-    if .SaveAllConfigsOnExit in appdata.control.actions {
+    if .SaveAllConfigs in appdata.control.on_exit {
         //if appdata.theme_config_data.version == THEME_SETTINGS_VERSION {
             save_config_data_to_disk(
                 appdata.theme_config_data, 
