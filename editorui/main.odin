@@ -7,7 +7,10 @@ import      "project:editorui"
 import "core:encoding/endian"
 
 import "core:strings"
+import "base:runtime"
 import "core:mem"
+import "core:slice"
+import "core:fmt"
 
 SliderRenderInfo :: struct {
     font_size: u8,
@@ -44,6 +47,7 @@ ButtonStripRenderInfo :: struct {
 
     back_color: ut.Color,
     button_color: ut.Color,
+    hover_color: ut.Color,
     text_color: ut.Color,
     outline_color: ut.Color,
 }
@@ -228,6 +232,7 @@ create_render_infos :: proc(theme: EditorUITheme) -> RenderInfos {
             font_size = theme.font_size,
             letter_spacing = theme.letter_spacing,
             back_color = widget_color,
+            hover_color = widget_color_middle,
             button_color = widget_color_placeholder,
             outline_color = theme.highlight_color,
             text_color = theme.text_color,
@@ -398,7 +403,7 @@ custom_component :: proc(editor_ui: ^EditorUI, widget: ed.InputIndex, frame_allo
         unreachable()
     }
 
-    input := editor_ui.panel_pool.inputs[widget]
+    input := &editor_ui.panel_pool.inputs[widget]
 
     switch v in input {
     case ed.Toggle:
@@ -464,11 +469,12 @@ custom_component :: proc(editor_ui: ^EditorUI, widget: ed.InputIndex, frame_allo
         }) {}
     }
 
-    if buttonstrip, ok := input.(ed.EnumButtonStrip); ok {
+    if buttonstrip, ok := &input.(ed.EnumButtonStrip); ok {
+        //TODO fix ids being not unique
         if clay.UI(widget_id)({ 
             backgroundColor = ut.color_to_f32list(editor_ui.render_infos.buttonstrip.back_color),
             layout = { 
-                layoutDirection = .TopToBottom,
+                layoutDirection = .LeftToRight,
                 sizing = { 
                     width = clay.SizingGrow(), 
                     height = clay.SizingGrow(),
@@ -476,6 +482,10 @@ custom_component :: proc(editor_ui: ^EditorUI, widget: ed.InputIndex, frame_allo
                 childGap = auto_cast editor_ui.render_infos.buttonstrip.gap,
                 padding = clay.PaddingAll(auto_cast editor_ui.render_infos.buttonstrip.outer_padding),
             },
+            clip = {
+                horizontal = true,
+                childOffset = clay.GetScrollOffset()
+            }
         }) {
             // ignore first enum value
             for i in 1..<len(buttonstrip.enum_names) {
@@ -484,9 +494,11 @@ custom_component :: proc(editor_ui: ^EditorUI, widget: ed.InputIndex, frame_allo
                 //val: [4]u8 
                 //copy(val[len(buttonstrip.current)-4:], buttonstrip.current)
                 //val_int := transmute(u32)val
+ 
+                widget_id := clay.ID(name, auto_cast widget)
                 
                 if clay.UI(widget_id)({ 
-                    backgroundColor = ut.color_to_f32list(editor_ui.render_infos.buttonstrip.button_color),
+                    backgroundColor = clay.Hovered() ? ut.color_to_f32list(editor_ui.render_infos.buttonstrip.hover_color) : ut.color_to_f32list(editor_ui.render_infos.buttonstrip.button_color),
                     layout = { 
                         sizing = {
                             width = clay.SizingGrow(),
@@ -496,6 +508,27 @@ custom_component :: proc(editor_ui: ^EditorUI, widget: ed.InputIndex, frame_allo
                         padding = clay.PaddingAll(auto_cast editor_ui.render_infos.buttonstrip.button_padding),
                     },
                 }) {
+                    clay.OnHover(proc "c" (id: clay.ElementId, pointerData: clay.PointerData, userptr: rawptr) {
+                        context = runtime.default_context()
+
+                        buttonstrip: ^ed.EnumButtonStrip = auto_cast userptr
+                        if pointerData.state == .PressedThisFrame {
+                            match: int = -1
+                            for name, i in buttonstrip.enum_names {
+                                ids := string(slice.from_ptr(id.stringId.chars, auto_cast id.stringId.length))
+                                if name == ids {
+                                    match = i
+                                    break
+                                }
+                            }
+
+                            if match != -1 {
+                                //TODO FIX
+                                buttonstrip.current[0] = u8(match)
+                            }
+                        }
+                    }, buttonstrip)
+
                     clay.Text(name, {
                         textColor = ut.color_to_f32list(editor_ui.render_infos.buttonstrip.text_color),
                         fontSize = u16(editor_ui.render_infos.buttonstrip.font_size),
