@@ -158,7 +158,7 @@ create_layout :: proc(
                 }) {
                     if clay.UI()({ 
                         layout = { 
-                            sizing = { width = clay.SizingPercent(1), height = clay.SizingPercent(0.5) } 
+                            sizing = { width = clay.SizingPercent(1), height = clay.SizingPercent(0.33) } 
                         }, 
                     }) {
                         editorui.gameview(0)
@@ -166,10 +166,18 @@ create_layout :: proc(
 
                     if clay.UI()({ 
                         layout = { 
-                            sizing = { width = clay.SizingPercent(1), height = clay.SizingPercent(0.5) } 
+                            sizing = { width = clay.SizingPercent(1), height = clay.SizingPercent(0.33) } 
                         }, 
                     }) {
                         editorui.gameview(1)
+                    }
+
+                    if clay.UI()({ 
+                        layout = { 
+                            sizing = { width = clay.SizingPercent(1), height = clay.SizingPercent(0.34) } 
+                        }, 
+                    }) {
+                        editorui.fileviewer(editor_ui, editor_ui.render_infos.fileviewer)
                     }
                 }
 

@@ -4,7 +4,6 @@ import ed   "project:editor"
 import clay "project:clay-odin"
 import ut   "project:utils"
 import      "project:editorui"
-import "core:encoding/endian"
 
 import "core:strings"
 import "base:runtime"
@@ -28,12 +27,16 @@ ToggleRenderInfo :: struct {
     false_color: ut.Color,
 }
 
+FileViewerRenderInfo :: struct {
+}
+
 RenderInfos :: struct {
     slider: SliderRenderInfo,
     text: TextInputRenderInfo,
     dropdown: DropdownRenderInfo,
     toggle: ToggleRenderInfo,
     buttonstrip: ButtonStripRenderInfo,
+    fileviewer: FileViewerRenderInfo,
 }
 
 ButtonStripRenderInfo :: struct {
@@ -181,6 +184,32 @@ InterfaceUIRenderer :: struct(T: typeid) {
     init: proc(implementation_data: ^T),
     should_close: proc(implementation_data: ^T, editor_ui: ^EditorUI) -> bool,
     draw_editor: proc(implementation_data: ^T, params: DrawEditorParams),
+}
+
+fileviewer :: proc(editor_ui: ^EditorUI, render_info: FileViewerRenderInfo) {
+    if clay.UI()({ 
+        layout = { 
+            layoutDirection = .LeftToRight,
+            childGap = 5,
+            sizing = { width = clay.SizingPercent(1), height = clay.SizingGrow() } 
+        }, 
+    }) {
+        if clay.UI()({ 
+            backgroundColor = auto_cast ut.color_to_f32list(ut.change_opacity(ut.get_contrasting_color(editor_ui.theme.background_color), 20)),
+            layout = { 
+                sizing = { width = clay.SizingGrow({ max = 200 }), height = clay.SizingGrow() } 
+            }, 
+        }) {
+        }
+
+        if clay.UI()({ 
+            backgroundColor = auto_cast ut.color_to_f32list(ut.change_opacity(ut.get_contrasting_color(editor_ui.theme.background_color), 20)),
+            layout = { 
+                sizing = { width = clay.SizingGrow(), height = clay.SizingGrow() } 
+            }, 
+        }) {
+        }
+    }
 }
 
 create_render_infos :: proc(theme: EditorUITheme) -> RenderInfos {
