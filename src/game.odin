@@ -231,6 +231,8 @@ AppData :: struct {
     editor_ui: editorui.EditorUI,
     
     replay_info: ReplayInfo,
+
+    fileviewer: FileViewer,
 }
 
 ReplayFlags :: enum { 
@@ -953,6 +955,8 @@ init_app :: proc(appdata: ^AppData, allocator: mem.Allocator) {
     appdata.editor_settings.selected_entity = entity_stub
     
     rn.init_font_table(&rn.font_table, context.allocator)
+
+    init_fileviewer_data_with_cwd(&appdata.fileviewer, appdata.init_mem_alloc, appdata.frame_mem_alloc)
 }
 
 exit_app :: proc(appdata: ^AppData) { 

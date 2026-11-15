@@ -153,12 +153,13 @@ create_layout :: proc(
                     layout = { 
                         sizing = { width = clay.SizingPercent(0.5), height = clay.SizingGrow({}) },
                         layoutDirection = .TopToBottom,
+                        childGap = 5
                     }, 
                     backgroundColor = ut.color_to_f32list(bg),
                 }) {
                     if clay.UI()({ 
                         layout = { 
-                            sizing = { width = clay.SizingPercent(1), height = clay.SizingPercent(0.33) } 
+                            sizing = { width = clay.SizingPercent(1), height = clay.SizingGrow() } 
                         }, 
                     }) {
                         editorui.gameview(0)
@@ -166,7 +167,7 @@ create_layout :: proc(
 
                     if clay.UI()({ 
                         layout = { 
-                            sizing = { width = clay.SizingPercent(1), height = clay.SizingPercent(0.33) } 
+                            sizing = { width = clay.SizingPercent(1), height = clay.SizingGrow() } 
                         }, 
                     }) {
                         editorui.gameview(1)
@@ -174,10 +175,10 @@ create_layout :: proc(
 
                     if clay.UI()({ 
                         layout = { 
-                            sizing = { width = clay.SizingPercent(1), height = clay.SizingPercent(0.34) } 
+                            sizing = { width = clay.SizingPercent(1), height = clay.SizingGrow() } 
                         }, 
                     }) {
-                        editorui.fileviewer(editor_ui, editor_ui.render_infos.fileviewer)
+                        fileviewer(editor_ui, &appdata.fileviewer, appdata.init_mem_alloc, appdata.frame_mem_alloc)
                     }
                 }
 
