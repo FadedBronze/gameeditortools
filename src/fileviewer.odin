@@ -1,5 +1,6 @@
 package main
 
+import "core:strconv"
 import "base:runtime"
 import clay "project:clay-odin"
 
@@ -138,7 +139,7 @@ fileviewer :: proc(editor_ui: ^editorui.EditorUI, file_viewer: ^FileViewer, init
             layout = { 
                 sizing = { width = clay.SizingGrow(), height = clay.SizingGrow() },
                 layoutDirection = .TopToBottom,
-                childGap = 0
+                childGap = 0,
             }, 
         }) {
             splitpath := strings.split(file_viewer.current_path, "/", frame_allocator)
@@ -150,7 +151,7 @@ fileviewer :: proc(editor_ui: ^editorui.EditorUI, file_viewer: ^FileViewer, init
                         clay.Hovered() ? 30 : 0
                     )),
                     layout = { 
-                        padding = clay.Padding {0, 0, 2, 2},
+                        padding = clay.Padding {2, 2, 2, 2},
                         sizing = { width = clay.SizingGrow(), height = clay.SizingFit() } 
                     }, 
                 }) {
@@ -181,7 +182,7 @@ fileviewer :: proc(editor_ui: ^editorui.EditorUI, file_viewer: ^FileViewer, init
                             clay.Hovered() ? 30 : (i % 2 == 0 ? 20 : 0)
                         )),
                         layout = { 
-                            padding = clay.Padding {0, 0, 2, 2},
+                            padding = clay.Padding {2, 2, 2, 2},
                             sizing = { width = clay.SizingGrow(), height = clay.SizingFit() } 
                         }, 
                     }) {
@@ -193,6 +194,7 @@ fileviewer :: proc(editor_ui: ^editorui.EditorUI, file_viewer: ^FileViewer, init
                             }
                         }, file_viewer)
 
+                        // allocator is only for outer slice which we don't care about 
                         splitpath := strings.split(v.path, "/", frame_allocator)
                         clay.Text(splitpath[len(splitpath)-1], clay.TextElementConfig{
                             fontSize = auto_cast editor_ui.theme.font_size,
@@ -204,8 +206,10 @@ fileviewer :: proc(editor_ui: ^editorui.EditorUI, file_viewer: ^FileViewer, init
                     if clay.UI()({ 
                         backgroundColor = auto_cast ut.color_to_f32list(ut.change_opacity(ut.get_contrasting_color(editor_ui.theme.background_color), i % 2 == 0 ? 20 : 0)),
                         layout = { 
-                            padding = clay.Padding {0, 0, 2, 2},
-                            sizing = { width = clay.SizingGrow(), height = clay.SizingFit() } 
+                            layoutDirection = .LeftToRight,
+                            padding = clay.Padding {2, 2, 2, 2},
+                            sizing = { width = clay.SizingGrow(), height = clay.SizingFit() },
+                            childGap = 5,
                         }, 
                     }) {
                         clay.Text(v.name, clay.TextElementConfig{
@@ -213,9 +217,67 @@ fileviewer :: proc(editor_ui: ^editorui.EditorUI, file_viewer: ^FileViewer, init
                             letterSpacing = auto_cast editor_ui.theme.letter_spacing,
                             textColor = ut.color_to_f32list(editor_ui.theme.text_color),
                         })
+                        
+                        // spacer
+                        if clay.UI()({ 
+                            layout = { 
+                                sizing = { width = clay.SizingGrow(), height = clay.SizingGrow() } 
+                            }, 
+                        }) {
+                        }
+
+                        if clay.UI()({ 
+                            layout = { 
+                                sizing = { width = clay.SizingFit(), height = clay.SizingFit() },
+                                childAlignment = clay.ChildAlignment { x = .Right },
+                            }, 
+                        }) {
+                            clay.Text(format_byte_size(v.size, frame_allocator), clay.TextElementConfig{
+                                fontSize = auto_cast editor_ui.theme.font_size,
+                                letterSpacing = auto_cast editor_ui.theme.letter_spacing,
+                                textColor = ut.color_to_f32list(editor_ui.theme.text_color),
+                            })
+                        }
+                        
+                        if clay.UI()({ 
+                            layout = { 
+                                sizing = { width = clay.SizingFit(), height = clay.SizingFit() },
+                                childAlignment = clay.ChildAlignment { x = .Right },
+                            }, 
+                        }) {
+                            buf: []u8 = make([]u8, 64, frame_allocator)
+                            str := time.to_string_hms(v.modifed, buf)
+                            clay.Text(str, clay.TextElementConfig{
+                                fontSize = auto_cast editor_ui.theme.font_size,
+                                letterSpacing = auto_cast editor_ui.theme.letter_spacing,
+                                textColor = ut.color_to_f32list(editor_ui.theme.text_color),
+                            })
+                        }
                     }
                 }
             }
         }
+    }
+}
+
+format_byte_size :: proc(size: i64, allocator: mem.Allocator) -> string {
+    buf := make([]u8, 128, allocator)
+
+    if size < 3*1000 {
+        // bytes
+        bytes := size
+        return strings.concatenate({strconv.write_int(buf, bytes, 10), " bytes"})
+    } else if size < 3*1000*1000 {
+        // kilobytes
+        kilobytes := size / 1000
+        return strings.concatenate({strconv.write_int(buf, kilobytes, 10), " kB"})
+    } else if size < 3*1000*1000*1000 {
+        // megabytes
+        megabytes := size / 1000*1000
+        return strings.concatenate({strconv.write_int(buf, megabytes, 10), " MB"})
+    } else { // if size < 3*1000*1000*1000 {
+        // gigabytes
+        gigabytes := size / 1000*1000*1000
+        return strings.concatenate({strconv.write_int(buf, gigabytes, 10), " GB"})
     }
 }
