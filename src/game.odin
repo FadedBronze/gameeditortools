@@ -214,15 +214,11 @@ AppData :: struct {
 
     // loaded data
     level_data: VersionedFile(LevelFile),
-    editor_config_data: VersionedFile(EditorSettings),
-    // should be moved perhaps idek how to architect this thing
-    theme_config_data: VersionedFile(editorui.EditorUITheme),
-    viewport_config_data: VersionedFile(ViewportData),
 
     // references to loaded data
-    editor_settings: ^EditorSettings,
+    editor_settings: EditorSettings,
     using level: ^LevelFile,
-    using viewport_data: ^ViewportData,
+    using viewport_data: ViewportData,
 
     // assets
     sprite_sheet: SpriteSheet(FirstGameSheetId),
@@ -926,28 +922,31 @@ init_app :: proc(appdata: ^AppData, allocator: mem.Allocator) {
 
     // ===== editor ui
     load_config_file_from_disk(
-        &appdata.theme_config_data, 
+        &appdata.editor_ui.theme, 
         "theme_settings", 
         appdata.frame_mem_alloc, 
         appdata.init_mem_alloc
     )
 
-    appdata.editor_ui = editorui.create_editorui(&appdata.theme_config_data.data, context.allocator)
-    
-    if appdata.editor_config_data.version != EDITOR_SETTINGS_VERSION {
-        fmt.eprintln("Editor settings version mismatch")
-    }
+    appdata.editor_ui = editorui.create_editorui(&appdata.editor_ui.theme, context.allocator)
     
     load_config_file_from_disk(
-        &appdata.editor_config_data, 
+        &appdata.editor_settings, 
         "editor_settings", 
         appdata.frame_mem_alloc, 
         appdata.init_mem_alloc
     )
     
     load_config_file_from_disk(
-        &appdata.viewport_config_data, 
+        &appdata.viewport_data, 
         "viewport_settings", 
+        appdata.frame_mem_alloc, 
+        appdata.init_mem_alloc
+    )
+    
+    load_config_file_from_disk(
+        &appdata.fileviewer.configs, 
+        "fileviewer_settings", 
         appdata.frame_mem_alloc, 
         appdata.init_mem_alloc
     )
@@ -966,37 +965,31 @@ exit_app :: proc(appdata: ^AppData) {
             version = LEVEL_REPLAY_FILE_VERSION,
         }
 
-        //if appdata.level_data.version == LEVEL_REPLAY_FILE_VERSION {
         save_level_data_to_disk(appdata, "default", appdata.frame_mem_alloc)
-        //} else {
-        //    fmt.eprintln("WARNING: write updates file version")
-        //}
     }    
 
     if .SaveAllConfigs in appdata.control.on_exit {
-        //if appdata.theme_config_data.version == THEME_SETTINGS_VERSION {
-            save_config_data_to_disk(
-                appdata.theme_config_data, 
-                "theme_settings", 
-                appdata.frame_mem_alloc, 
-            )
-        //} else {
-        //    fmt.eprintln("WARNING: write updates file version")
-        //}
-
-        //if appdata.editor_config_data.version == EDITOR_SETTINGS_VERSION {
-            save_config_data_to_disk(
-                appdata.editor_config_data, 
-                "editor_settings", 
-                appdata.frame_mem_alloc, 
-            ) 
-        //} else {
-        //    fmt.eprintln("WARNING: write updates file version")
-        //}
+        save_config_data_to_disk(
+            appdata.editor_ui.theme, 
+            "theme_settings", 
+            appdata.frame_mem_alloc, 
+        )
 
         save_config_data_to_disk(
-            appdata.viewport_config_data, 
+            appdata.editor_settings, 
+            "editor_settings", 
+            appdata.frame_mem_alloc, 
+        ) 
+
+        save_config_data_to_disk(
+            appdata.viewport_data, 
             "viewport_settings", 
+            appdata.frame_mem_alloc, 
+        ) 
+
+        save_config_data_to_disk(
+            appdata.fileviewer.configs, 
+            "fileviewer_settings", 
             appdata.frame_mem_alloc, 
         ) 
     }

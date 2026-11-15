@@ -159,7 +159,7 @@ load_level_data_from_disk :: proc(
     return true
 }
 
-save_config_data_to_disk :: proc(b: VersionedFile($T), filename: string, frame_allocator: mem.Allocator) -> bool {
+save_config_data_to_disk :: proc(b: $T, filename: string, frame_allocator: mem.Allocator) -> bool {
     data, err_marhshall := json.marshal(b, allocator=frame_allocator)
     if err_marhshall != nil {
         fmt.println("failed to marshal JSON", err_marhshall)
@@ -175,7 +175,7 @@ save_config_data_to_disk :: proc(b: VersionedFile($T), filename: string, frame_a
     return true
 }
 
-load_config_file_from_disk :: proc(b: ^VersionedFile($T), filename: string, frame_allocator: mem.Allocator, init_allocator: mem.Allocator) -> bool {
+load_config_file_from_disk :: proc(b: ^$T, filename: string, frame_allocator: mem.Allocator, init_allocator: mem.Allocator) -> bool {
     data, err := os.read_entire_file_from_path(strings.concatenate({"./", CONFIG_DIRECTORY, "/", filename, ".json"}, allocator=frame_allocator), frame_allocator)
     if err != nil {
         fmt.println("failed to load config", filename, "from disk")

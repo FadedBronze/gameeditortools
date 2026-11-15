@@ -108,7 +108,7 @@ super_panel :: proc(
 
     if .ThemeEditor in appdata.editor_settings.open_views && view_placements[.ThemeEditor] == placement {
         label := "Theme"
-        editorui.render_structure_panel(editor_ui, label, editor_ui.theme, label)
+        editorui.render_structure_panel(editor_ui, label, &editor_ui.theme, label)
     }
 }
 
@@ -272,8 +272,6 @@ main :: proc() {
 
     appdata: AppData
     appdata.level = &appdata.level_data.data
-    appdata.editor_settings = &appdata.editor_config_data.data
-    appdata.viewport_data = &appdata.viewport_config_data.data
     init_app(&appdata, context.allocator)     
 
     irenderer := rn.get_interface()

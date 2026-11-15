@@ -105,7 +105,7 @@ ActiveInfo :: struct {
 }
 
 EditorUI :: struct {
-    theme: ^EditorUITheme,
+    theme: EditorUITheme,
     render_infos: RenderInfos,
 
     // for meta program
@@ -285,14 +285,14 @@ create_editorui :: proc(theme: ^EditorUITheme, allocator: mem.Allocator) -> Edit
         ui_groups = make(map[string]ed.InputIndex, allocator),
         panels = make(map[string]ed.GroupIndex, allocator),
         active_id = custom_input_id(max(ed.InputIndex)),
-        theme = theme,
+        theme = theme^,
         editor_context = editor_context,
     }
 }
 
 
 render_structure_panel :: proc(editor_ui: ^EditorUI, id: string, structure: ^$T, label: string, init_allocator: mem.Allocator = context.allocator, frame_allocator: mem.Allocator = context.temp_allocator) {
-    editor_ui.render_infos = create_render_infos(editor_ui.theme^)
+    editor_ui.render_infos = create_render_infos(editor_ui.theme)
     if panel, ok := editor_ui.panels[id]; ok {
         render_panel_recurse(editor_ui, &editor_ui.panel_pool.groups[panel], frame_allocator)
     } else {

@@ -14,9 +14,15 @@ import "core:os"
 import "core:strings"
 import "core:slice"
 
-FileViewer :: struct {
-    current_path: string,
+FileViewerConfigs :: struct {
     root_path: string,
+    current_path: string,
+    shortcut_paths: [8]string,
+    shortcut_paths_count: u8,
+}
+
+FileViewer :: struct {
+    using configs: FileViewerConfigs,
     tree: AssetTreeIndex,
 }
 
@@ -109,8 +115,12 @@ init_fileviewer_data_with_cwd :: proc(file_viewer: ^FileViewer, init_allocator: 
         assert(false)
     }
 
-    file_viewer.current_path = dir
-    file_viewer.root_path = dir
+    if file_viewer.current_path == "" {
+        file_viewer.current_path = dir
+    }
+    if file_viewer.root_path == "" {
+        file_viewer.root_path = dir
+    }
     load_all_files_into_structure(&file_viewer.tree, file_viewer.root_path, frame_allocator, init_allocator)
 
     //for key, _ in file_viewer.tree.index {
