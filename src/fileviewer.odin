@@ -1,5 +1,6 @@
 package main
 
+import "base:runtime"
 import clay "project:clay-odin"
 
 import "project:editorui"
@@ -22,11 +23,13 @@ AssetFile :: struct {
     name: string,
     modifed: time.Time,
     size: i64,
+    parent: ^AssetDirectory,
 }
 
 AssetDirectory :: struct {
     path: string,
     children: []AssetFileTree,
+    parent: ^AssetDirectory,
 }
 
 AssetFileTree :: union {
@@ -45,7 +48,9 @@ load_all_files_into_structure :: proc(structure: ^AssetTreeIndex, base_path: str
     f, err := os.open(base_path)
     
     structure.index = make(map[string]^AssetDirectory)
-    structure.root = AssetDirectory {}
+    structure.root = AssetDirectory {
+        path = base_path
+    }
 
     if err == nil {
         load_all_files_into_structure_recurse(f, &structure.root.(AssetDirectory), &structure.index, frame_allocator, init_allocator)
@@ -64,11 +69,13 @@ load_all_files_into_structure_recurse :: proc(f: ^os.File, root: ^AssetDirectory
             if file.type == .Directory {
                 f, err := os.open(file.fullpath)
                 if err == nil {
-                    next_root := AssetDirectory {
-                        path = file.fullpath,
-                    }
-                    load_all_files_into_structure_recurse(f, &next_root, index, frame_allocator, init_allocator)
-                    append(&children, next_root)
+                    path_clone, err := strings.clone(file.fullpath, init_allocator)
+                    assert(err == nil, message="init allocator memory ran out")
+                    append(&children, AssetDirectory {
+                        path = path_clone,
+                        parent = root,
+                    })
+                    load_all_files_into_structure_recurse(f, &children[len(children)-1].(AssetDirectory), index, frame_allocator, init_allocator)
                     map_insert(index, file.fullpath, &children[len(children)-1].(AssetDirectory))
                 } else {
                     fmt.eprintln("open directory error", err)
@@ -79,6 +86,7 @@ load_all_files_into_structure_recurse :: proc(f: ^os.File, root: ^AssetDirectory
                 name_clone, err := strings.clone(file.name, init_allocator)
                 assert(err == nil, message="init allocator memory ran out")
                 append(&children, AssetFile {
+                    parent = root,
                     name = name_clone,
                     size = file.size,
                     modifed = file.modification_time,
@@ -133,6 +141,37 @@ fileviewer :: proc(editor_ui: ^editorui.EditorUI, file_viewer: ^FileViewer, init
                 childGap = 0
             }, 
         }) {
+            splitpath := strings.split(file_viewer.current_path, "/", frame_allocator)
+
+            if file_viewer.tree.index[file_viewer.current_path].parent != nil {
+                if clay.UI()({ 
+                    backgroundColor = auto_cast ut.color_to_f32list(
+                        ut.change_opacity(ut.get_contrasting_color(editor_ui.theme.background_color), 
+                        clay.Hovered() ? 30 : 0
+                    )),
+                    layout = { 
+                        padding = clay.Padding {0, 0, 2, 2},
+                        sizing = { width = clay.SizingGrow(), height = clay.SizingFit() } 
+                    }, 
+                }) {
+                    clay.OnHover(proc "c" (id: clay.ElementId, pointerData: clay.PointerData, userData: rawptr) {
+                        file_viewer: ^FileViewer = auto_cast userData
+
+                        if pointerData.state == .ReleasedThisFrame {
+                            context = runtime.default_context()
+                            //fmt.println(file_viewer.tree.index[file_viewer.current_path].parent.path)
+                            file_viewer.current_path = file_viewer.tree.index[file_viewer.current_path].parent.path
+                        }
+                    }, file_viewer)
+
+                    clay.Text("..", clay.TextElementConfig{
+                        fontSize = auto_cast editor_ui.theme.font_size,
+                        letterSpacing = auto_cast editor_ui.theme.letter_spacing,
+                        textColor = ut.color_to_f32list(editor_ui.theme.text_color),
+                    })
+                }
+            }
+
             for file, i in file_viewer.tree.index[file_viewer.current_path].children {
                 switch v in file {
                 case AssetDirectory:
@@ -149,7 +188,7 @@ fileviewer :: proc(editor_ui: ^editorui.EditorUI, file_viewer: ^FileViewer, init
                         clay.OnHover(proc "c" (id: clay.ElementId, pointerData: clay.PointerData, userData: rawptr) {
                             file_viewer: ^FileViewer = auto_cast userData
 
-                            if pointerData.state == .PressedThisFrame {
+                            if pointerData.state == .ReleasedThisFrame {
                                 file_viewer.current_path = string(slice.from_ptr(id.stringId.chars, auto_cast id.stringId.length))
                             }
                         }, file_viewer)
