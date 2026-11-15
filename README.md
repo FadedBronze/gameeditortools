@@ -59,6 +59,19 @@ mega devlog:
 - replays go really fast or slow depending on your hardware because the time deltas between the frames are saved during recording to ensure determinism
 - I plan to have some sort of smart sleeping to slow it down to the expected time so the replay is also smooth to look at 
 
+# Week 4
+
+devlog 1:
+
+I have my UI set up in two chunks the implementation of specific widgets and letting clay handle more broad UI structure what I realized was clay doesn't support wrapping UI elements only wrapping text (either that or I am being dumb) after restructuring code to have wrapping implemented manually I realized it was going to be just too jumbled so I decided to simply use scrollbars in the end (which isn't too bad). I think I would've liked to rewrite the UI without clay but its far too embedded at this point and would take a huge overhaul.
+
+devlog 2:
+- created a file viewer in order to make loading specific levels, replays, and possibly, configs later easier
+- it has a sidebar for shortcut paths you can add paths to the side by clicking on the plus on directories
+- I setup a gobal "selected path" which I will make a button to copy them into "path dropdowns" a specific type of dropdown which will reference an asset
+- removed some versioned files (a type I was using more before this change) I thought the concept made sense but It didn't so I need to undo that for the level binary aswell but its harder to modify then the json so ill likely perform migration for that via code
+- have file sizes and date modified on the files
+
 # Releases
 You can find windows releases in the side (although its being developed on linux - im pretty sure linux binaries aren't transferrable so im not adding those) 
 although I think should be easier to just build if you have the odin compiler installed

@@ -229,6 +229,9 @@ AppData :: struct {
     replay_info: ReplayInfo,
 
     fileviewer: FileViewer,
+
+    // used to reference assets
+    selected_path: string,
 }
 
 ReplayFlags :: enum { 

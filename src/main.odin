@@ -178,7 +178,7 @@ create_layout :: proc(
                             sizing = { width = clay.SizingPercent(1), height = clay.SizingGrow() } 
                         }, 
                     }) {
-                        fileviewer(editor_ui, &appdata.fileviewer, appdata.init_mem_alloc, appdata.frame_mem_alloc)
+                        fileviewer(appdata, &appdata.fileviewer, appdata.init_mem_alloc, appdata.frame_mem_alloc)
                     }
                 }
 

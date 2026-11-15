@@ -28,6 +28,7 @@ FileViewer :: struct {
 
 AssetFile :: struct {
     name: string,
+    path: string,
     modifed: time.Time,
     size: i64,
     parent: ^AssetDirectory,
@@ -92,8 +93,12 @@ load_all_files_into_structure_recurse :: proc(f: ^os.File, root: ^AssetDirectory
             if file.type == .Regular {
                 name_clone, err := strings.clone(file.name, init_allocator)
                 assert(err == nil, message="init allocator memory ran out")
+                path_clone, err_ := strings.clone(file.fullpath, init_allocator)
+                assert(err_ == nil, message="init allocator memory ran out")
+
                 append(&children, AssetFile {
                     parent = root,
+                    path = path_clone,
                     name = name_clone,
                     size = file.size,
                     modifed = file.modification_time,
@@ -128,7 +133,9 @@ init_fileviewer_data_with_cwd :: proc(file_viewer: ^FileViewer, init_allocator: 
     //}
 }
 
-fileviewer :: proc(editor_ui: ^editorui.EditorUI, file_viewer: ^FileViewer, init_allocator: mem.Allocator, frame_allocator: mem.Allocator) {
+fileviewer :: proc(appdata: ^AppData, file_viewer: ^FileViewer, init_allocator: mem.Allocator, frame_allocator: mem.Allocator) {
+    editor_ui := appdata.editor_ui
+
     if clay.UI()({ 
         layout = { 
             layoutDirection = .LeftToRight,
@@ -139,9 +146,38 @@ fileviewer :: proc(editor_ui: ^editorui.EditorUI, file_viewer: ^FileViewer, init
         if clay.UI()({ 
             backgroundColor = auto_cast ut.color_to_f32list(ut.change_opacity(ut.get_contrasting_color(editor_ui.theme.background_color), 20)),
             layout = { 
-                sizing = { width = clay.SizingGrow({ max = 200 }), height = clay.SizingGrow() } 
+                layoutDirection = .TopToBottom,
+                sizing = { width = clay.SizingGrow({ max = 150 }), height = clay.SizingGrow() } 
             }, 
         }) {
+            for path, i in file_viewer.shortcut_paths[0:file_viewer.shortcut_paths_count] {
+                if clay.UI(clay.ID(path, 1))({ 
+                    backgroundColor = auto_cast ut.color_to_f32list(
+                        ut.change_opacity(ut.get_contrasting_color(editor_ui.theme.background_color), 
+                        clay.Hovered() ? 30 : (i % 2 == 0 ? 20 : 0)
+                    )),
+                    layout = { 
+                        padding = clay.Padding {2, 2, 2, 2},
+                        sizing = { width = clay.SizingGrow(), height = clay.SizingFit() } 
+                    }, 
+                }) {
+                    clay.OnHover(proc "c" (id: clay.ElementId, pointerData: clay.PointerData, userData: rawptr) {
+                        file_viewer: ^FileViewer = auto_cast userData
+
+                        if pointerData.state == .ReleasedThisFrame {
+                            file_viewer.current_path = string(slice.from_ptr(id.stringId.chars, auto_cast id.stringId.length))
+                        }
+                    }, file_viewer)
+
+                    // allocator is only for outer slice which we don't care about 
+                    splitpath := strings.split(path, "/", frame_allocator)
+                    clay.Text(splitpath[len(splitpath)-1], clay.TextElementConfig{
+                        fontSize = auto_cast editor_ui.theme.font_size*4/5,
+                        letterSpacing = auto_cast editor_ui.theme.letter_spacing,
+                        textColor = ut.color_to_f32list(editor_ui.theme.text_color),
+                    })
+                }
+            }
         }
 
         if clay.UI()({ 
@@ -186,31 +222,92 @@ fileviewer :: proc(editor_ui: ^editorui.EditorUI, file_viewer: ^FileViewer, init
             for file, i in file_viewer.tree.index[file_viewer.current_path].children {
                 switch v in file {
                 case AssetDirectory:
-                    if clay.UI(clay.ID(v.path))({ 
+                    if clay.UI()({ 
                         backgroundColor = auto_cast ut.color_to_f32list(
                             ut.change_opacity(ut.get_contrasting_color(editor_ui.theme.background_color), 
-                            clay.Hovered() ? 30 : (i % 2 == 0 ? 20 : 0)
+                            i % 2 == 0 ? 20 : 0
                         )),
                         layout = { 
-                            padding = clay.Padding {2, 2, 2, 2},
                             sizing = { width = clay.SizingGrow(), height = clay.SizingFit() } 
                         }, 
                     }) {
-                        clay.OnHover(proc "c" (id: clay.ElementId, pointerData: clay.PointerData, userData: rawptr) {
-                            file_viewer: ^FileViewer = auto_cast userData
-
-                            if pointerData.state == .ReleasedThisFrame {
-                                file_viewer.current_path = string(slice.from_ptr(id.stringId.chars, auto_cast id.stringId.length))
+                        if clay.UI(clay.ID(v.path))({
+                            backgroundColor = auto_cast ut.color_to_f32list(
+                                ut.change_opacity(ut.get_contrasting_color(editor_ui.theme.background_color), 
+                                clay.Hovered() ? 20 : 0
+                            )),
+                            layout = { 
+                                //childAlignment = { x = .Right },
+                                sizing = { width = clay.SizingGrow(), height = clay.SizingFit() },
+                                padding = clay.Padding {2, 2, 2, 2},
                             }
-                        }, file_viewer)
+                        }) {
+                            clay.OnHover(proc "c" (id: clay.ElementId, pointerData: clay.PointerData, userData: rawptr) {
+                                file_viewer: ^FileViewer = auto_cast userData
 
-                        // allocator is only for outer slice which we don't care about 
-                        splitpath := strings.split(v.path, "/", frame_allocator)
-                        clay.Text(splitpath[len(splitpath)-1], clay.TextElementConfig{
-                            fontSize = auto_cast editor_ui.theme.font_size,
-                            letterSpacing = auto_cast editor_ui.theme.letter_spacing,
-                            textColor = ut.color_to_f32list(editor_ui.theme.text_color),
-                        })
+                                if pointerData.state == .ReleasedThisFrame {
+                                    file_viewer.current_path = string(slice.from_ptr(id.stringId.chars, auto_cast id.stringId.length))
+                                }
+                            }, file_viewer)
+
+                            // allocator is only for outer slice which we don't care about 
+                            splitpath := strings.split(v.path, "/", frame_allocator)
+                            clay.Text(splitpath[len(splitpath)-1], clay.TextElementConfig{
+                                fontSize = auto_cast editor_ui.theme.font_size,
+                                letterSpacing = auto_cast editor_ui.theme.letter_spacing,
+                                textColor = ut.color_to_f32list(editor_ui.theme.text_color),
+                            })
+                        }
+
+                        if clay.UI(clay.ID(v.path, 2))({
+                            backgroundColor = auto_cast ut.color_to_f32list(
+                                ut.change_opacity(ut.get_contrasting_color(editor_ui.theme.background_color), 
+                                clay.Hovered() ? 10 : 0
+                            )),
+                            layout = { 
+                                childAlignment = { x = .Right },
+                                sizing = { width = clay.SizingFit(), height = clay.SizingFit() },
+                                padding = clay.Padding {2, 2, 2, 2},
+                            }
+                        }) {
+                            clay.OnHover(proc "c" (id: clay.ElementId, pointerData: clay.PointerData, userData: rawptr) {
+                                file_viewer: ^FileViewer = auto_cast userData
+
+                                idpath := string(slice.from_ptr(id.stringId.chars, auto_cast id.stringId.length))
+
+                                contains := -1
+                                for path, i in file_viewer.shortcut_paths[0:file_viewer.shortcut_paths_count] {
+                                    if path == idpath {
+                                        contains = i
+                                        break
+                                    }
+                                }
+
+                                if pointerData.state == .ReleasedThisFrame {
+                                    if contains == -1 {
+                                        file_viewer.shortcut_paths[file_viewer.shortcut_paths_count] = idpath
+                                        file_viewer.shortcut_paths_count += 1
+                                    } else {
+                                        file_viewer.shortcut_paths[contains] = file_viewer.shortcut_paths[file_viewer.shortcut_paths_count-1]
+                                        file_viewer.shortcut_paths_count -= 1
+                                    }
+                                }
+                            }, file_viewer)
+
+                            contains := false
+                            for path in file_viewer.shortcut_paths[0:file_viewer.shortcut_paths_count] {
+                                if path == v.path {
+                                    contains = true
+                                    break
+                                }
+                            }
+
+                            clay.Text(contains ? "[-]" : "[+]", clay.TextElementConfig{
+                                fontSize = auto_cast editor_ui.theme.font_size,
+                                letterSpacing = auto_cast editor_ui.theme.letter_spacing,
+                                textColor = ut.color_to_f32list(editor_ui.theme.text_color),
+                            })
+                        }
                     }
                 case AssetFile:
                     if clay.UI()({ 
@@ -258,6 +355,40 @@ fileviewer :: proc(editor_ui: ^editorui.EditorUI, file_viewer: ^FileViewer, init
                             buf: []u8 = make([]u8, 64, frame_allocator)
                             str := time.to_string_hms(v.modifed, buf)
                             clay.Text(str, clay.TextElementConfig{
+                                fontSize = auto_cast editor_ui.theme.font_size,
+                                letterSpacing = auto_cast editor_ui.theme.letter_spacing,
+                                textColor = ut.color_to_f32list(editor_ui.theme.text_color),
+                            })
+                        }
+                        
+                        if clay.UI(clay.ID(v.path))({
+                            backgroundColor = auto_cast ut.color_to_f32list(
+                                ut.change_opacity(ut.get_contrasting_color(editor_ui.theme.background_color), 
+                                clay.Hovered() ? 20 : 0
+                            )),
+                            layout = { 
+                                childAlignment = { x = .Right },
+                                sizing = { width = clay.SizingFit(), height = clay.SizingFit() },
+                                padding = clay.Padding {2, 0, 2, 2},
+                            }
+                        }) {
+                            clay.OnHover(proc "c" (id: clay.ElementId, pointerData: clay.PointerData, userData: rawptr) {
+                                appdata: ^AppData = auto_cast userData
+
+                                idpath := string(slice.from_ptr(id.stringId.chars, auto_cast id.stringId.length))
+
+                                if pointerData.state == .ReleasedThisFrame {
+                                    if appdata.selected_path == idpath {
+                                        appdata.selected_path = ""
+                                    } else {
+                                        appdata.selected_path = idpath
+                                    }
+                                }
+                            }, appdata)
+
+                            contains := appdata.selected_path == v.path
+
+                            clay.Text(contains ? "[o]" : "[+]", clay.TextElementConfig{
                                 fontSize = auto_cast editor_ui.theme.font_size,
                                 letterSpacing = auto_cast editor_ui.theme.letter_spacing,
                                 textColor = ut.color_to_f32list(editor_ui.theme.text_color),
