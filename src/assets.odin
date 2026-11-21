@@ -2,6 +2,7 @@ package main
 
 import ut "project:utils"
 import rl "vendor:raylib"
+import "core:container/small_array"
 
 SpriteSheet :: union(T: typeid) {
     UniformSpritesheet,
@@ -93,4 +94,215 @@ create_first_game_sheet :: proc() -> SpriteSheet(FirstGameSheetId) {
             height = 440,
         }
     }
+}
+
+count_occurances :: proc(things: []$T, check_thing: T) -> (count: int = 0) {
+    for thing in things {
+        if thing == check_thing {
+            count += 1
+        }
+    }
+}
+
+maxrects_split_rectangle :: proc(free_rect: ut.Bounds(u32), splitter_rect: ut.Bounds(u32), res_buffer: []ut.Bounds) -> (count: u8) {
+    fw := free_rect.width
+    fh := free_rect.height
+    sw := splitter_rect.width
+    sh := splitter_rect.height
+
+    ste := splitter_rect.y
+    fte := free_rect.y
+    sre := splitter_rect.width + splitter_rect.x
+    fre := free_rect.width + free_rect.x
+    sle := splitter_rect.x
+    fle := free_rect.x
+    sbe := splitter_rect.height + splitter_rect.y
+    fbe := free_rect.height + free_rect.y
+
+    r := res < ref
+    l := les < lef
+    t := tes < tef
+    b := bes < bef
+
+    if !r && !l && !t && !b {
+        return 0
+    }
+
+    if r && l && t && b {
+        copy(res_buffer, []ut.Bounds(u32){{
+            //top
+            height = abs(fte-ste),
+            width = fw,
+            x = fle,
+            y = fte,
+        }, {
+            //bottom
+            height = abs(fbe-sbe),
+            width = fw,
+            x = fle,
+            y = sbe,
+        }, {
+            //left
+            height = fh,
+            width = abs(fle-sle),
+            x = fle,
+            y = fte,
+        }, {
+            //right
+            height = fh,
+            width = abs(fre-sre),
+            x = sre,
+            y = fte,
+        }})
+        return 4
+    } 
+    
+    if r && l && t && !b {
+        copy(res_buffer, []ut.Bounds(u32){{
+            //top
+            height = abs(fte-ste),
+            width = fw,
+            x = fle,
+            y = fte,
+        }, {
+            //left
+            height = fh,
+            width = abs(fle-sle),
+            x = fle,
+            y = fte,
+        }, {
+            //right
+            height = fh,
+            width = abs(fre-sre),
+            x = sre,
+            y = fte,
+        }})
+        return 3
+    } 
+    
+    if r && l && !t && b {
+        copy(res_buffer, []ut.Bounds(u32){
+        {  
+            //bottom
+            height = abs(fbe-sbe),
+            width = fw,
+            x = fle,
+            y = sbe,
+        }, {
+            //left
+            height = fh,
+            width = abs(fle-sle),
+            x = fle,
+            y = fte,
+        }, {
+            //right
+            height = fh,
+            width = abs(fre-sre),
+            x = sre,
+            y = fte,
+        }})
+        return 3
+    } 
+    
+    if r && l && !t && !b {
+        copy(res_buffer, []ut.Bounds(u32){
+        {
+            //left
+            height = fh,
+            width = abs(fle-sle),
+            x = fle,
+            y = fte,
+        }, {
+            //right
+            height = fh,
+            width = abs(fre-sre),
+            x = sre,
+            y = fte,
+        }})
+        return 2
+    } 
+    
+    if r && l && t && b {
+        copy(res_buffer, []ut.Bounds(u32){{
+            //top
+            height = abs(fte-ste),
+            width = fw,
+            x = fle,
+            y = fte,
+        }, {
+            //bottom
+            height = abs(fbe-sbe),
+            width = fw,
+            x = fle,
+            y = sbe,
+        }, })
+        return 2
+    } 
+}
+
+maxrects_split_rectangle_simplification_guess :: proc(free_rect: ut.Bounds(u32), splitter_rect: ut.Bounds(u32), res_buffer: []ut.Bounds) -> (count: u8) {
+    fw := free_rect.width
+    fh := free_rect.height
+    sw := splitter_rect.width
+    sh := splitter_rect.height
+
+    ste := splitter_rect.y
+    fte := free_rect.y
+    sre := splitter_rect.width + splitter_rect.x
+    fre := free_rect.width + free_rect.x
+    sle := splitter_rect.x
+    fle := free_rect.x
+    sbe := splitter_rect.height + splitter_rect.y
+    fbe := free_rect.height + free_rect.y
+
+    r := res < ref
+    l := lef < les
+    t := tef < tes
+    b := bes < bef
+
+    if !r && !l && !t && !b {
+        return 0
+    }
+
+    if r && l && t && b {
+        sa: small_array.Small_Array(4, ut.Bounds)
+        if t {
+            small_array.append(&sa, {
+                height = abs(fte-ste),
+                width = fw,
+                x = fle,
+                y = fte,
+            })
+        }
+        if b {
+            small_array.append(&sa, {
+                height = abs(fbe-sbe),
+                width = fw,
+                x = fle,
+                y = sbe,
+            })
+        }
+        if l {
+            small_array.append(&sa, {
+                height = fh,
+                width = abs(fle-sle),
+                x = fle,
+                y = fte,
+            })
+        }
+        if r {
+            small_array.append(&sa, {
+                height = fh,
+                width = abs(fre-sre),
+                x = sre,
+                y = fte,
+            })
+        }
+        copy(res_buffer, sa.data[sa.len])
+        return sa.len
+    } 
+}
+
+pack_sprites_nonuniform_maxrects :: proc(id: $T) -> SpriteSheet(T) {
+    
 }
