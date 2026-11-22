@@ -3,6 +3,8 @@ package main
 import ut "project:utils"
 import rl "vendor:raylib"
 import "core:container/small_array"
+import "core:math/rand"
+import "core:fmt"
 
 SpriteSheet :: union(T: typeid) {
     UniformSpritesheet,
@@ -10,7 +12,7 @@ SpriteSheet :: union(T: typeid) {
 }
 
 NonuniformAABBSpriteSheet :: struct {
-    bounds: []ut.Bounds(u32),
+    bounds: []ut.Bounds(i32),
     texture: rl.Texture,
 }
 
@@ -104,11 +106,9 @@ count_occurances :: proc(things: []$T, check_thing: T) -> (count: int = 0) {
     }
 }
 
-maxrects_split_rectangle :: proc(free_rect: ut.Bounds(u32), splitter_rect: ut.Bounds(u32), res_buffer: []ut.Bounds) -> (count: u8) {
+maxrects_split_rectangle_simplification :: proc(free_rect: ut.Bounds(i32), splitter_rect: ut.Bounds(i32), res_buffer: []ut.Bounds(i32)) -> (count: u8) {
     fw := free_rect.width
     fh := free_rect.height
-    sw := splitter_rect.width
-    sh := splitter_rect.height
 
     ste := splitter_rect.y
     fte := free_rect.y
@@ -119,190 +119,203 @@ maxrects_split_rectangle :: proc(free_rect: ut.Bounds(u32), splitter_rect: ut.Bo
     sbe := splitter_rect.height + splitter_rect.y
     fbe := free_rect.height + free_rect.y
 
-    r := res < ref
-    l := les < lef
-    t := tes < tef
-    b := bes < bef
+    // we don't want to add an extra free rect on equals because they'd be empty
+    r := sre < fre
+    l := fle < sle
+    t := fte < ste
+    b := sbe < fbe
 
     if !r && !l && !t && !b {
         return 0
     }
 
-    if r && l && t && b {
-        copy(res_buffer, []ut.Bounds(u32){{
-            //top
+    sa: small_array.Small_Array(4, ut.Bounds(i32))
+
+    if t {
+        small_array.append_elem(&sa, ut.Bounds(i32){
             height = abs(fte-ste),
             width = fw,
             x = fle,
             y = fte,
-        }, {
-            //bottom
-            height = abs(fbe-sbe),
-            width = fw,
-            x = fle,
-            y = sbe,
-        }, {
-            //left
-            height = fh,
-            width = abs(fle-sle),
-            x = fle,
-            y = fte,
-        }, {
-            //right
-            height = fh,
-            width = abs(fre-sre),
-            x = sre,
-            y = fte,
-        }})
-        return 4
-    } 
-    
-    if r && l && t && !b {
-        copy(res_buffer, []ut.Bounds(u32){{
-            //top
-            height = abs(fte-ste),
-            width = fw,
-            x = fle,
-            y = fte,
-        }, {
-            //left
-            height = fh,
-            width = abs(fle-sle),
-            x = fle,
-            y = fte,
-        }, {
-            //right
-            height = fh,
-            width = abs(fre-sre),
-            x = sre,
-            y = fte,
-        }})
-        return 3
-    } 
-    
-    if r && l && !t && b {
-        copy(res_buffer, []ut.Bounds(u32){
-        {  
-            //bottom
-            height = abs(fbe-sbe),
-            width = fw,
-            x = fle,
-            y = sbe,
-        }, {
-            //left
-            height = fh,
-            width = abs(fle-sle),
-            x = fle,
-            y = fte,
-        }, {
-            //right
-            height = fh,
-            width = abs(fre-sre),
-            x = sre,
-            y = fte,
-        }})
-        return 3
-    } 
-    
-    if r && l && !t && !b {
-        copy(res_buffer, []ut.Bounds(u32){
-        {
-            //left
-            height = fh,
-            width = abs(fle-sle),
-            x = fle,
-            y = fte,
-        }, {
-            //right
-            height = fh,
-            width = abs(fre-sre),
-            x = sre,
-            y = fte,
-        }})
-        return 2
-    } 
-    
-    if r && l && t && b {
-        copy(res_buffer, []ut.Bounds(u32){{
-            //top
-            height = abs(fte-ste),
-            width = fw,
-            x = fle,
-            y = fte,
-        }, {
-            //bottom
-            height = abs(fbe-sbe),
-            width = fw,
-            x = fle,
-            y = sbe,
-        }, })
-        return 2
-    } 
-}
-
-maxrects_split_rectangle_simplification_guess :: proc(free_rect: ut.Bounds(u32), splitter_rect: ut.Bounds(u32), res_buffer: []ut.Bounds) -> (count: u8) {
-    fw := free_rect.width
-    fh := free_rect.height
-    sw := splitter_rect.width
-    sh := splitter_rect.height
-
-    ste := splitter_rect.y
-    fte := free_rect.y
-    sre := splitter_rect.width + splitter_rect.x
-    fre := free_rect.width + free_rect.x
-    sle := splitter_rect.x
-    fle := free_rect.x
-    sbe := splitter_rect.height + splitter_rect.y
-    fbe := free_rect.height + free_rect.y
-
-    r := res < ref
-    l := lef < les
-    t := tef < tes
-    b := bes < bef
-
-    if !r && !l && !t && !b {
-        return 0
+        })
     }
 
-    if r && l && t && b {
-        sa: small_array.Small_Array(4, ut.Bounds)
-        if t {
-            small_array.append(&sa, {
-                height = abs(fte-ste),
-                width = fw,
-                x = fle,
-                y = fte,
-            })
-        }
-        if b {
-            small_array.append(&sa, {
-                height = abs(fbe-sbe),
-                width = fw,
-                x = fle,
-                y = sbe,
-            })
-        }
-        if l {
-            small_array.append(&sa, {
-                height = fh,
-                width = abs(fle-sle),
-                x = fle,
-                y = fte,
-            })
-        }
-        if r {
-            small_array.append(&sa, {
-                height = fh,
-                width = abs(fre-sre),
-                x = sre,
-                y = fte,
-            })
-        }
-        copy(res_buffer, sa.data[sa.len])
-        return sa.len
-    } 
+    if b {
+        small_array.append_elem(&sa, ut.Bounds(i32){
+            height = abs(fbe-sbe),
+            width = fw,
+            x = fle,
+            y = sbe,
+        })
+    }
+
+    if l {
+        small_array.append_elem(&sa, ut.Bounds(i32){
+            height = fh,
+            width = abs(fle-sle),
+            x = fle,
+            y = fte,
+        })
+    }
+
+    if r {
+        small_array.append_elem(&sa, ut.Bounds(i32){
+            height = fh,
+            width = abs(fre-sre),
+            x = sre,
+            y = fte,
+        })
+    }
+
+    copy(res_buffer, sa.data[0:sa.len])
+    return u8(sa.len)
 }
 
-pack_sprites_nonuniform_maxrects :: proc(id: $T) -> SpriteSheet(T) {
-    
+Sprite :: struct {
+    bounds: ut.Bounds(i32),
+    rotated_90: bool,
+}
+
+main :: proc() { 
+    rl.InitWindow(1080, 600, "yay")
+    rl.SetWindowState({.WINDOW_RESIZABLE})
+
+    pack_random_sprites_and_output() 
+}
+
+pack_random_sprites_and_output :: proc(gen := context.random_generator) { 
+    textures: [dynamic]rl.Texture
+
+    for i in 0..<1000 {
+        w := rand.int32_range(24, 128, gen)
+        h := rand.int32_range(24, 128, gen)
+
+        random_sprite := rl.LoadRenderTexture(w, h)
+
+        rl.BeginTextureMode(random_sprite)
+        rl.ClearBackground(transmute(rl.Color)ut.random_rgb_color(gen))
+        rl.EndTextureMode()
+
+        append_elem(&textures, random_sprite.texture)
+    }
+
+    success, fulltexture, sprites := pack_raylib_textures_maxrects(u32, textures[:], 1024, 1024)
+
+    if success {
+        img := rl.LoadImageFromTexture(fulltexture)
+        fmt.println(sprites)
+        rl.ExportImage(img, "./megatex.png")
+    }
+}
+
+pack_raylib_textures_maxrects :: proc($T: typeid, textures: []rl.Texture, width: i32, height: i32) -> (bool, rl.Texture, []Sprite) {
+    free_rects := make([dynamic]ut.Bounds(i32))
+    append(&free_rects, ut.Bounds(i32) {
+        x = 0,
+        y = 0,
+        width = width,
+        height = height,
+    })
+
+    sprites := make([dynamic]Sprite)
+    output_texture := rl.LoadRenderTexture(width, height)
+
+    rl.BeginTextureMode(output_texture)
+
+    for texture in textures {
+        // best short side fit
+        bignum: i32 = 10000000
+        best_ssf_score := bignum
+        best_ssf_rotated: bool = false
+        best_ssf_free_rect := -1
+
+        for free_rect, i in free_rects {
+            min_ssf_score: i32
+            min_sff_rotated: bool
+
+            if texture.width < texture.height {
+                ssf_score := free_rect.width - texture.width
+                sff_rot_score := free_rect.height - texture.width
+
+                lsf_fits := free_rect.height >= texture.height
+                lsf_rot_fits := free_rect.height >= texture.height
+
+                min_ssf_score = min(lsf_fits ? ssf_score : bignum, lsf_rot_fits ? sff_rot_score : bignum)
+                min_sff_rotated = min_ssf_score == sff_rot_score
+            } else {
+                ssf_score := free_rect.height - texture.height
+                sff_rot_score := free_rect.width - texture.height
+                
+                lsf_fits := free_rect.width >= texture.width
+                lsf_rot_fits := free_rect.height >= texture.width
+
+                min_ssf_score = min(lsf_fits ? ssf_score : bignum, lsf_rot_fits ? sff_rot_score : bignum)
+                min_sff_rotated = min_ssf_score == sff_rot_score
+            }
+
+            if min_ssf_score < best_ssf_score {
+                best_ssf_score = min_ssf_score
+                best_ssf_rotated = min_sff_rotated
+                best_ssf_free_rect = i
+            }
+        }
+
+        rect := free_rects[best_ssf_free_rect]
+        rl.DrawTextureRec(
+            texture, 
+            rl.Rectangle {
+                x = 0,
+                y = 0,
+                width = auto_cast texture.width,
+                height = auto_cast texture.height,
+            },
+            rl.Vector2{f32(rect.x), f32(rect.y)},
+            rl.WHITE,
+        )
+
+        // TODO: add to sprites list
+        if best_ssf_rotated {
+            splitter := ut.Bounds(i32) {
+                x = rect.x,
+                y = rect.y,
+                width = texture.width,
+                height = texture.height,
+            }
+
+            buf: [4]ut.Bounds(i32)
+            count := maxrects_split_rectangle_simplification(rect, splitter, buf[:])
+
+            append_elem(&sprites, Sprite {
+                rotated_90 = true,
+                bounds = splitter,
+            })
+
+            for b in buf[0:count] {
+                append_elem(&free_rects, b)
+            }
+        } else {
+            splitter := ut.Bounds(i32) {
+                x = rect.x,
+                y = rect.y,
+                width = texture.height,
+                height = texture.width,
+            }
+
+            buf: [4]ut.Bounds(i32)
+            count := maxrects_split_rectangle_simplification(rect, splitter, buf[:])
+
+            append_elem(&sprites, Sprite {
+                rotated_90 = false,
+                bounds = splitter,
+            })
+
+            for b in buf[0:count] {
+                append_elem(&free_rects, b)
+            }
+        }
+    }
+
+    rl.EndTextureMode()
+
+    return true, output_texture.texture, sprites[:]
 }

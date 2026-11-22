@@ -3,6 +3,7 @@ package utils
 import "core:mem"
 import la "core:math/linalg"
 import rn "base:runtime"
+import "core:math/rand"
 
 // colors 
 
@@ -376,4 +377,10 @@ bitset_enum_type_info :: proc(T: typeid) -> struct {
         upper = u32(bitset_info.upper),
         lower = u32(bitset_info.lower),
     }
+}
+
+random_rgb_color :: proc(gen := context.random_generator) -> Color {
+    col := transmute(Color)rand.uint32(gen)
+    col.a = 255
+    return col
 }

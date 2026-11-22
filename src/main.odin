@@ -264,11 +264,11 @@ error_handler :: proc "c" (errorData: clay.ErrorData) {
     //fmt.println(errorData)
 }
 
-main :: proc() { 
+app_main :: proc() {
     rl.InitWindow(1080, 600, "yay")
+    rl.SetWindowState({.WINDOW_RESIZABLE})
     //rl.InitWindow(0, 0, "yay")
     //rl.SetWindowState({.FULLSCREEN_MODE})
-    rl.SetWindowState({.WINDOW_RESIZABLE})
 
     appdata: AppData
     appdata.level = &appdata.level_data.data
@@ -293,3 +293,5 @@ main :: proc() {
 
     exit_app(&appdata)
 }
+
+//main :: proc() { app_main() }
