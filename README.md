@@ -72,6 +72,20 @@ devlog 2:
 - removed some versioned files (a type I was using more before this change) I thought the concept made sense but It didn't so I need to undo that for the level binary aswell but its harder to modify then the json so ill likely perform migration for that via code
 - have file sizes and date modified on the files
 
+# Week 5
+
+devlog 1:
+
+I got a file to output but its not working well yet there is a bug somewhere to get here I implemented a function to split available area once a placement for the sprite is chosen and one to do the heavy lifting of scanning through and find the placement with the best short side fit. (BSSF)
+
+devlog 2:
+
+implemented maxrects to automatically pack sprites later but I think I might change to a more efficient packing algorithm later because the result is a little underwhelming
+
+devlog 3:
+
+I implemented a ray line intersection and ray bounding box intersection as well as laid out the function for creating the shadow map which will just be a pixel grid the size of the screen. I could do this with math but I thought to take the simpler approach. I need to test the code though. Also you can enable a game UI layout now aswell in the world viewport flags. I have some plans for the game but I am not sure yet but its in there.
+
 # Releases
 You can find windows releases in the side (although its being developed on linux - im pretty sure linux binaries aren't transferrable so im not adding those) 
 although I think should be easier to just build if you have the odin compiler installed

@@ -416,15 +416,15 @@ ray_intersect_bounds :: proc(rp: [2]$T, rd: [2]T, bounds: Bounds(T)) -> (interse
     }
 
     if intersection_count == 0 {
-        return {false, {}, {}}
+        return false, {}, {}
     }
 
     assert(intersection_count == 2)
 
     if la.vector_length(intersections[0]-rp) < la.vector_length(intersections[1]-rp) {
-        return {true, intersections[0], intersections[1]}
+        return true, intersections[0], intersections[1]
     } else {
-        return {true, intersections[1], intersections[0]}
+        return true, intersections[1], intersections[0]
     }
 }
 
