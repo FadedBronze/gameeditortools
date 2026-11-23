@@ -832,7 +832,7 @@ render :: proc(appdata: rawptr, screen_rect: ut.Bounds(f32), id: editorui.Viewpo
     case .GameTool:
     }
 
-    if id == appdata.viewport_data.game_viewport {
+    if .ShowGameUI in viewport.flags {
         clay.SetCurrentContext(appdata.game_ui_context)
         clay.SetLayoutDimensions({screen_rect.width, screen_rect.height})
         clay.BeginLayout()

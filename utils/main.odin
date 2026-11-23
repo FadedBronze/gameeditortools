@@ -390,3 +390,55 @@ random_rgb_color :: proc(gen := context.random_generator) -> Color {
     col.a = 255
     return col
 }
+
+ray_intersect_line_segment :: proc(rp: la.Vector2f64, rd: la.Vector2f64, s1: la.Vector2f64, s2: la.Vector2f64) -> (bool, la.Vector2f64) {
+    // both vertical lines
+    if s2.x == s1.x && rd.x == 0 {
+        return false, {0, 0}
+    }
+
+    // ray is vertical so point hit will be at x = rp.x
+    if rd.x == 0 {
+        x := rp.x
+
+        // it could be out of segment bounds
+        if 0 <= x && x <= abs(s1.x - s2.x) {
+            return false, {0, 0}
+        }
+
+        m2 := (s2.y - s1.y) / (s2.x - s1.x)
+        y := m2 * (x - s1.x) + s1.y
+        return true, {x, y}
+    }
+    
+    // segment is vertical so point hit will be at x = s1.x
+    if s2.x - s1.x == 0 {
+        x := s1.x
+        m1 := rd.y / rd.x
+        y := m1 * (x - rp.x) + rp.y
+        return true, {x, y}
+    }
+    
+    m1 := rd.y / rd.x
+    // r(x) = m1 * (x - rp.x) + rp.y
+    
+    m2 := (s2.y - s1.y) / (s2.x - s1.x)
+    // the x value should be in range of possible x values for the segment
+    // s(x) = m2 * (x - s1.x) + s1.y { 0 <= x <= abs(s1.x - s2.x) }
+
+    // m2 * (x - s1.x) + s1.y == m1 * (x - rp.x) + rp.y
+    // m2 * x - m2 * s1.x + s1.y == m1 * x - m1 * rp.x + rp.y
+    // m2 * x - m1 * x == rp.y + s1.y + m2 * s1.x - m1 * rp.x 
+    // x * (m2 - m1) == rp.y + s1.y + m2 * s1.x - m1 * rp.x 
+    // x := (rp.y + s1.y + m2 * s1.x - m1 * rp.x) / (m2 - m1)
+    
+    x := (rp.y + s1.y + m2 * s1.x - m1 * rp.x) / (m2 - m1)
+
+    if 0 <= x && x <= abs(s1.x - s2.x) {
+        return false, {0, 0}
+    }
+
+    y := m2 * (x - s1.x) + s1.y
+
+    return true, {x, y}
+}

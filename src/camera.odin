@@ -10,7 +10,9 @@ ViewportFlags :: bit_set[enum {
     HighlightSelectedTile,
     HighlightCameraRooms,
     ShowGridOuterBounds,
+    ShowGameUI,
     RenderGrid,
+    RenderCornerShadows,
 }]
 
 WorldViewport2D :: struct {
