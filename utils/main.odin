@@ -103,6 +103,12 @@ position_within_bounds :: proc(position: [2]$T, bounds: Bounds(T)) -> bool {
     return within_x && within_y
 }
 
+overlapping_bounds :: proc(a: Bounds($T), b: Bounds(T)) -> bool {
+    x_overlap := a.x < b.x + b.width && b.x < a.x + a.width
+    y_overlap := a.y < b.y + b.height && b.y < a.y + a.height
+    return x_overlap && y_overlap
+}
+
 bounds_within_bounds :: proc(container: Bounds($T), inside: Bounds(T)) -> bool {
     within_x := container.x < inside.x && container.x + container.width > inside.x + inside.width 
     within_y := container.y < inside.y && container.y + container.height > inside.y + inside.height

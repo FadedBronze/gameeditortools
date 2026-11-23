@@ -107,6 +107,11 @@ count_occurances :: proc(things: []$T, check_thing: T) -> (count: int = 0) {
 }
 
 maxrects_split_rectangle_simplification :: proc(free_rect: ut.Bounds(i32), splitter_rect: ut.Bounds(i32), res_buffer: []ut.Bounds(i32)) -> (count: u8) {
+    if !ut.overlapping_bounds(free_rect, splitter_rect) {
+        res_buffer[0] = free_rect
+        return 1
+    }
+
     fw := free_rect.width
     fh := free_rect.height
 
@@ -176,17 +181,11 @@ Sprite :: struct {
     rotated_90: bool,
 }
 
-main :: proc() { 
-    rl.InitWindow(1080, 600, "yay")
-    rl.SetWindowState({.WINDOW_RESIZABLE})
-
-    pack_random_sprites_and_output() 
-}
-
 pack_random_sprites_and_output :: proc(gen := context.random_generator) { 
     textures: [dynamic]rl.Texture
+    rand.reset(3, gen)
 
-    for i in 0..<1000 {
+    for i in 0..<30 {
         w := rand.int32_range(24, 128, gen)
         h := rand.int32_range(24, 128, gen)
 
@@ -199,11 +198,10 @@ pack_random_sprites_and_output :: proc(gen := context.random_generator) {
         append_elem(&textures, random_sprite.texture)
     }
 
-    success, fulltexture, sprites := pack_raylib_textures_maxrects(u32, textures[:], 1024, 1024)
+    success, fulltexture, sprites := pack_raylib_textures_maxrects(u32, textures[:], 512, 512)
 
     if success {
         img := rl.LoadImageFromTexture(fulltexture)
-        fmt.println(sprites)
         rl.ExportImage(img, "./megatex.png")
     }
 }
@@ -237,19 +235,19 @@ pack_raylib_textures_maxrects :: proc($T: typeid, textures: []rl.Texture, width:
                 ssf_score := free_rect.width - texture.width
                 sff_rot_score := free_rect.height - texture.width
 
-                lsf_fits := free_rect.height >= texture.height
-                lsf_rot_fits := free_rect.height >= texture.height
+                lsf_fits := free_rect.height - texture.height >= 0
+                lsf_rot_fits := free_rect.width - texture.height >= 0
 
-                min_ssf_score = min(lsf_fits ? ssf_score : bignum, lsf_rot_fits ? sff_rot_score : bignum)
+                min_ssf_score = min(lsf_fits && ssf_score>=0 ? ssf_score : bignum, lsf_rot_fits && sff_rot_score>=0 ? sff_rot_score : bignum)
                 min_sff_rotated = min_ssf_score == sff_rot_score
             } else {
                 ssf_score := free_rect.height - texture.height
                 sff_rot_score := free_rect.width - texture.height
                 
-                lsf_fits := free_rect.width >= texture.width
-                lsf_rot_fits := free_rect.height >= texture.width
+                lsf_fits := free_rect.width - texture.width >= 0
+                lsf_rot_fits := free_rect.height - texture.width >= 0
 
-                min_ssf_score = min(lsf_fits ? ssf_score : bignum, lsf_rot_fits ? sff_rot_score : bignum)
+                min_ssf_score = min(lsf_fits && ssf_score>=0 ? ssf_score : bignum, lsf_rot_fits && sff_rot_score>=0 ? sff_rot_score : bignum)
                 min_sff_rotated = min_ssf_score == sff_rot_score
             }
 
@@ -261,60 +259,59 @@ pack_raylib_textures_maxrects :: proc($T: typeid, textures: []rl.Texture, width:
         }
 
         rect := free_rects[best_ssf_free_rect]
-        rl.DrawTextureRec(
-            texture, 
-            rl.Rectangle {
-                x = 0,
-                y = 0,
-                width = auto_cast texture.width,
-                height = auto_cast texture.height,
-            },
-            rl.Vector2{f32(rect.x), f32(rect.y)},
-            rl.WHITE,
-        )
 
+        splitter: ut.Bounds(i32)
         // TODO: add to sprites list
         if best_ssf_rotated {
-            splitter := ut.Bounds(i32) {
+            splitter = ut.Bounds(i32) {
+                x = rect.x,
+                y = rect.y,
+                width = texture.height,
+                height = texture.width, 
+            }
+        } else {
+            splitter = ut.Bounds(i32) {
                 x = rect.x,
                 y = rect.y,
                 width = texture.width,
                 height = texture.height,
             }
+        }
 
+        // we have to split all of them not just the one we found
+        length := len(free_rects)
+        new_free_rects := make([dynamic]ut.Bounds(i32))
+
+        for free_rect in free_rects {
             buf: [4]ut.Bounds(i32)
-            count := maxrects_split_rectangle_simplification(rect, splitter, buf[:])
-
-            append_elem(&sprites, Sprite {
-                rotated_90 = true,
-                bounds = splitter,
-            })
+            count := maxrects_split_rectangle_simplification(free_rect, splitter, buf[:])
 
             for b in buf[0:count] {
-                append_elem(&free_rects, b)
-            }
-        } else {
-            splitter := ut.Bounds(i32) {
-                x = rect.x,
-                y = rect.y,
-                width = texture.height,
-                height = texture.width,
-            }
-
-            buf: [4]ut.Bounds(i32)
-            count := maxrects_split_rectangle_simplification(rect, splitter, buf[:])
-
-            append_elem(&sprites, Sprite {
-                rotated_90 = false,
-                bounds = splitter,
-            })
-
-            for b in buf[0:count] {
-                append_elem(&free_rects, b)
+                assert(!ut.overlapping_bounds(splitter, b))
+                append_elem(&new_free_rects, b)
             }
         }
-    }
 
+        free_rects = new_free_rects
+
+        append_elem(&sprites, Sprite {
+            rotated_90 = best_ssf_rotated,
+            bounds = splitter,
+        })
+
+        rl.DrawTextureRec(
+            texture, 
+            rl.Rectangle{
+                x = auto_cast splitter.x,
+                y = auto_cast splitter.y,
+                width = auto_cast splitter.width,
+                height = auto_cast splitter.height
+            },
+            rl.Vector2{f32(rect.x), f32(rect.y)},
+            rl.WHITE,
+        )
+    }
+    
     rl.EndTextureMode()
 
     return true, output_texture.texture, sprites[:]

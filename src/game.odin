@@ -151,6 +151,7 @@ Actions :: enum {
     OverwriteSelectedEntity,
     ResizeWorldBounds,
     DeleteSelectedEntityID,
+    OutputMaxrectsTest,
 }
 
 OnExitActions :: bit_set[enum {
@@ -190,7 +191,7 @@ AppData :: struct {
     // intermediate state
     camera_follow: CameraFollow,
     drag: Drag,
-    ui_context: ^clay.Context,
+    game_ui_context: ^clay.Context,
     computed_simplified_collision_hitboxes: []ut.Bounds(f64), // greedy meshed hitboxes
 
     // if you want to increase or decrease world bounds
@@ -572,25 +573,21 @@ update :: proc(appdata: ^AppData, delta: f32) {
             entity.transform.offset += entity.velocity * dt
         }
     }
-    
-    if  appdata.control.actions == .LoadDataFromDisk {
+
+    switch appdata.control.actions {
+    case .DoNothing:
+    case .LoadDataFromDisk:
         load_level_data_from_disk(appdata, "default", appdata.frame_mem_alloc, appdata.init_mem_alloc)
-    }
-
-    if  appdata.control.actions == .RecomputeGridHitboxes{
+    case .RecomputeGridHitboxes:
         appdata.computed_simplified_collision_hitboxes = greedy_mesh_grid_into_worldspace_aabb_bounds_list(appdata.grid, appdata.linegrid);
-    }
-
-    if  appdata.control.actions == .OverwriteSelectedEntity{
+    case .OverwriteSelectedEntity:
         appdata.entities[appdata.editor_settings.selected_entity_id-1] = appdata.editor_settings.selected_entity
-    }
-
-    if  appdata.control.actions == .ResizeWorldBounds{
+    case .ResizeWorldBounds:
         resize_grid(&appdata.grid, appdata.new_bounds, appdata.init_mem_alloc)
-    }
-
-    if  appdata.control.actions == .DeleteSelectedEntityID{
+    case .DeleteSelectedEntityID:
         appdata.entities[appdata.editor_settings.selected_entity_id-1].flags -= { .Something }
+    case .OutputMaxrectsTest:
+        pack_random_sprites_and_output()
     }
     
     appdata.control.actions = .DoNothing
@@ -835,10 +832,17 @@ render :: proc(appdata: rawptr, screen_rect: ut.Bounds(f32), id: editorui.Viewpo
     case .GameTool:
     }
 
-    clay.SetCurrentContext(appdata.ui_context)
-    clay.BeginLayout()
-    elements := clay.EndLayout(appdata.delta_time)
-    clay_basic_renderer(elements)
+    if id == appdata.viewport_data.game_viewport {
+        clay.SetCurrentContext(appdata.game_ui_context)
+        clay.SetLayoutDimensions({screen_rect.width, screen_rect.height})
+        clay.BeginLayout()
+
+        gameui()
+        fmt.println(screen_rect)
+
+        elements := clay.EndLayout(appdata.delta_time)
+        clay_basic_renderer(elements, screen_rect)
+    }    
 }
 
 spawn_random_land :: proc(appdata: ^AppData) {
@@ -913,7 +917,7 @@ init_app :: proc(appdata: ^AppData, allocator: mem.Allocator) {
     memory := make([^]u8, min_memory_size, appdata.init_mem_alloc)
     arena: clay.Arena = clay.CreateArenaWithCapacityAndMemory(uint(min_memory_size), memory)
     game_ui_context := clay.Initialize(arena, {1080, 720}, { handler = error_handler })
-    appdata.ui_context = game_ui_context
+    appdata.game_ui_context = game_ui_context
     
     // ===== game initialization =====
     appdata.sprite_sheet = create_first_game_sheet()

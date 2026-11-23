@@ -210,7 +210,7 @@ create_layout :: proc(
     return clay.EndLayout(auto_cast delta_time)
 }
 
-clay_basic_renderer :: proc(elements: clay.ClayArray(clay.RenderCommand)) {  
+clay_basic_renderer :: proc(elements: clay.ClayArray(clay.RenderCommand), screen_rect: ut.Bounds(f32)) {  
     slx := slice.from_ptr(elements.internalArray, auto_cast elements.length)
 
     for element in slx {
@@ -221,7 +221,12 @@ clay_basic_renderer :: proc(elements: clay.ClayArray(clay.RenderCommand)) {
             case .None:
             case .Rectangle:
                 color := render_command.renderData.rectangle.backgroundColor
-                rl.DrawRectangleRec(auto_cast render_command.boundingBox, auto_cast ut.f32list_to_color(color))
+                rl.DrawRectangleRec(rl.Rectangle {
+                    x = render_command.boundingBox.x+screen_rect.x,
+                    y = render_command.boundingBox.y+screen_rect.y,
+                    width = render_command.boundingBox.width,
+                    height = render_command.boundingBox.height,
+                }, auto_cast ut.f32list_to_color(color))
             case .Border:
                 //color := render_command.renderData.border.color
                 //rl.DrawRectangleLines(auto_cast render_command.boundingBox, clay_to_raylib_color(color))
@@ -235,7 +240,7 @@ clay_basic_renderer :: proc(elements: clay.ClayArray(clay.RenderCommand)) {
                 rl.DrawTextEx(
                     rn.get_font(&rn.font_table, 0, text_command.fontSize),
                     cs, 
-                    {auto_cast box.x, auto_cast box.y},
+                    {auto_cast box.x+screen_rect.x, auto_cast box.y+screen_rect.y},
                     auto_cast text_command.fontSize, 
                     auto_cast text_command.letterSpacing, 
                     auto_cast ut.f32list_to_color(auto_cast text_command.textColor)
@@ -243,8 +248,8 @@ clay_basic_renderer :: proc(elements: clay.ClayArray(clay.RenderCommand)) {
             case .Custom:
             case .ScissorStart:
                 rl.BeginScissorMode(
-                    i32(render_command.boundingBox.x),
-                    i32(render_command.boundingBox.y),
+                    i32(render_command.boundingBox.x+screen_rect.x),
+                    i32(render_command.boundingBox.y+screen_rect.y),
                     i32(render_command.boundingBox.width),
                     i32(render_command.boundingBox.height)
                 )
@@ -294,4 +299,4 @@ app_main :: proc() {
     exit_app(&appdata)
 }
 
-//main :: proc() { app_main() }
+main :: proc() { app_main() }
