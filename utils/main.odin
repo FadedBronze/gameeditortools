@@ -391,7 +391,93 @@ random_rgb_color :: proc(gen := context.random_generator) -> Color {
     return col
 }
 
-ray_intersect_line_segment :: proc(rp: la.Vector2f64, rd: la.Vector2f64, s1: la.Vector2f64, s2: la.Vector2f64) -> (bool, la.Vector2f64) {
+get_aabb_corners :: proc(aabb: Bounds($T)) -> [4][2]T {
+    return {
+        {aabb.x, aabb.y},
+        {aabb.x+aabb.width, aabb.y},
+        {aabb.x+aabb.width, aabb.y+aabb.height},
+        {aabb.x, aabb.y+aabb.height},
+    }
+}
+
+ray_intersect_bounds :: proc(rp: [2]$T, rd: [2]T, bounds: Bounds(T)) -> (intersected: bool, entrance_point: [2]T, exit_point: [2]T) {
+    corners := get_aabb_corners(bounds)
+    prev := corners[len(corners)-1]
+
+    intersections: [2][2]T 
+    intersection_count: u8 = 0
+
+    for i in 0..<len(corners) {
+        if ok, point := ray_intersect_line_segment(rp, rd, prev, corners[i]); ok {
+            intersections[intersection_count] = point
+            intersection_count += 1
+        }
+        prev = corners[i]
+    }
+
+    if intersection_count == 0 {
+        return {false, {}, {}}
+    }
+
+    assert(intersection_count == 2)
+
+    if la.vector_length(intersections[0]-rp) < la.vector_length(intersections[1]-rp) {
+        return {true, intersections[0], intersections[1]}
+    } else {
+        return {true, intersections[1], intersections[0]}
+    }
+}
+
+// based on ray line segment intersect
+line_segment_intersect_line_segment :: proc(r1: [2]$T, r2: [2]T, s1: [2]T, s2: [2]T) -> (bool, [2]T) {
+    // both vertical lines
+    if s2.x == s1.x && r1.x == r2.x {
+        return false, {0, 0}
+    }
+
+    // r segment is vertical so point hit will be at x = r1.x or r2.x
+    if r1.x == r2.x {
+        x := r1.x
+
+        // it could be out of segment bounds
+        if 0 <= x && x <= abs(s1.x - s2.x) {
+            return false, {0, 0}
+        }
+
+        m := (s2.y - s1.y) / (s2.x - s1.x)
+        y := m * (x - s1.x) + s1.y
+        return true, {x, y}
+    }
+    
+    // s segment is vertical so point hit will be at x = r1.x or r2.x
+    if s1.x == s2.x {
+        x := s1.x
+
+        // it could be out of segment bounds
+        if 0 <= x && x <= abs(r1.x - r2.x) {
+            return false, {0, 0}
+        }
+
+        m := (r2.y - r1.y) / (r2.x - r1.x)
+        y := m * (x - r1.x) + r1.y
+        return true, {x, y}
+    }
+    
+    m1 := (r2.y - r1.y) / (r2.x - r1.x)
+    m2 := (s2.y - s1.y) / (s2.x - s1.x)
+
+    x := (r1.y + s1.y + m2 * s1.x - m1 * r1.x) / (m2 - m1)
+
+    if 0 <= x && x <= min(abs(r1.x - r2.x), abs(s1.x - s2.x)) {
+        return false, {0, 0}
+    }
+
+    y := m2 * (x - s1.x) + s1.y
+
+    return true, {x, y}
+}
+
+ray_intersect_line_segment :: proc(rp: [2]$T, rd: [2]T, s1: [2]T, s2: [2]T) -> (bool, [2]T) {
     // both vertical lines
     if s2.x == s1.x && rd.x == 0 {
         return false, {0, 0}
