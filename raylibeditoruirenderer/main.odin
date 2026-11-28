@@ -1101,6 +1101,8 @@ draw_editor_immediate_from_layout :: proc(
     mouse_position := rl.GetMousePosition()
     mouse_down := rl.IsMouseButtonDown(.LEFT)
 
+    rl.BeginDrawing()
+
     rl.ClearBackground(auto_cast params.editor_ui.theme.background_color)
     clay.SetMeasureTextFunction(measure_text, nil)
     clay.SetCurrentContext(params.editor_ui.editor_context)

@@ -293,6 +293,10 @@ app_main :: proc() {
             dt = dt
         })
 
+        for &viewport in &appdata.viewports {
+            render_outside_clipping_rect(&appdata, &viewport)
+        }
+
         update(&appdata, dt)
     }
 

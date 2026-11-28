@@ -13,6 +13,7 @@ ViewportFlags :: bit_set[enum {
     ShowGameUI,
     RenderGrid,
     RenderCornerShadows,
+    ShowRaycasterIntersectionTest,
 }]
 
 WorldViewport2D :: struct {
@@ -22,6 +23,7 @@ WorldViewport2D :: struct {
     camera_position: la.Vector2f64 "text",
     camera_scale: la.Vector2f64 "text",
     camera_rotation: f64 "slider min(0) max(6.283)",
+    shadow_map_texture: rl.RenderTexture2D,
 }
 
 drag_camera :: proc(appdata: ^AppData, index: editorui.ViewportIndex) {
@@ -85,6 +87,18 @@ get_viewport_matrix :: proc(viewport: WorldViewport2D) -> la.Matrix3x3f64 {
         rotation_rad = 0,
         offset = {viewport.screen_rect.x+viewport.screen_rect.width/2, viewport.screen_rect.y+viewport.screen_rect.height/2},
         scale = {viewport.world_to_screenspace_scale, viewport.world_to_screenspace_scale},
+    })
+
+    return la.matrix_mul(view_matrix, la.matrix_mul(camera_matrix, camera_offset))
+}
+
+get_viewport_matrix_without_offset :: proc(viewport: WorldViewport2D) -> la.Matrix3x3f64 {
+    camera_offset := ut.create_matrix(-viewport.camera_position, {1, 1}, 0)
+    camera_matrix := ut.create_matrix({0, 0}, viewport.camera_scale, viewport.camera_rotation)
+    view_matrix := ut.create_matrix_from_transform(ut.Transform(f64) {
+        rotation_rad = 0,
+        offset = {viewport.screen_rect.width/2, viewport.screen_rect.height/2},
+        scale = {viewport.world_to_screenspace_scale, -viewport.world_to_screenspace_scale},
     })
 
     return la.matrix_mul(view_matrix, la.matrix_mul(camera_matrix, camera_offset))

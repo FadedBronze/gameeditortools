@@ -183,7 +183,6 @@ Sprite :: struct {
 
 pack_random_sprites_and_output :: proc(gen := context.random_generator) { 
     textures: [dynamic]rl.Texture
-    rand.reset(3, gen)
 
     for i in 0..<30 {
         w := rand.int32_range(24, 128, gen)

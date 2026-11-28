@@ -4,6 +4,7 @@ import "core:math/rand"
 import "core:fmt"
 import "core:mem"
 import la "core:math/linalg"
+import "core:math"
 
 import "project:editorui"
 import ut "project:utils"
@@ -101,7 +102,7 @@ EditorSettings :: struct {
     placing_entity: Entity,
     // staging entity
     selected_entity: Entity,
-    selected_entity_id: u32 "readonly text",
+    selected_entity_id: u32 "text",
     flags: bit_set[enum {
         EntityPlaceSnapGrid,
     }] "dropdown",
@@ -689,6 +690,45 @@ grid_bounds_to_worldspace_bounds :: proc(bound: ut.Bounds(f64), linegrid: Rectan
     return ut.apply_matrix_to_bounds(mat, cellsize_scaled_cell_bound)
 }
 
+draw_raycaster_intersection_test :: proc(appdata: ^AppData, index: editorui.ViewportIndex) {
+    viewport := &appdata.viewports[index]
+
+    mouse_pos := rl.GetMousePosition()
+
+    viewport_mat := get_viewport_matrix(viewport^)
+    inverse_viewport_mat := la.inverse(viewport_mat)
+
+    player := -1
+    for entity, i in appdata.entities {
+        if .Something in entity.flags && .PlayerControl in entity.flags {
+            player = i
+        }
+    }
+
+    if player != -1 {
+        player := &appdata.entities[player]
+        screen_player := ut.apply_matrix_to_point(viewport_mat, player.transform.offset)
+        world_mouse := ut.apply_matrix_to_point(inverse_viewport_mat, auto_cast mouse_pos)
+
+        for bound in appdata.computed_simplified_collision_hitboxes {
+            rp, rd := player.transform.offset, world_mouse - player.transform.offset
+
+            if intersection_count, intersections := ut.ray_intersect_bounds(rp, rd, bound); intersection_count!=0 {
+                for intersection in intersections[0:1] {
+                    p := ut.apply_matrix_to_point(viewport_mat, intersection)
+                    rl.DrawCircle(i32(p.x), i32(p.y), 5, rl.ORANGE)
+                }
+            }
+        }
+
+        rl.DrawLine(i32(mouse_pos.x), i32(mouse_pos.y), i32(screen_player.x), i32(screen_player.y), auto_cast rl.RED)
+    }
+}
+
+render_outside_clipping_rect :: proc(appdata: ^AppData, viewport: ^WorldViewport2D) {
+    update_shadow_map(appdata, viewport)
+}
+
 render :: proc(appdata: rawptr, screen_rect: ut.Bounds(f32), id: editorui.ViewportIndex) {
     appdata: ^AppData = cast(^AppData)appdata
     viewport := &appdata.viewports[id]
@@ -843,6 +883,43 @@ render :: proc(appdata: rawptr, screen_rect: ut.Bounds(f32), id: editorui.Viewpo
         elements := clay.EndLayout(appdata.delta_time)
         clay_basic_renderer(elements, screen_rect)
     }    
+
+    if .ShowRaycasterIntersectionTest in viewport.flags {
+        draw_raycaster_intersection_test(appdata, id)
+    }
+
+    render_shadow_map(appdata, viewport^)
+}
+
+update_shadow_map :: proc(appdata: ^AppData, viewport: ^WorldViewport2D) {
+    mouse_pos := rl.GetMousePosition()
+
+    viewport_mat := get_viewport_matrix(viewport^)
+    inverse_viewport_mat := la.inverse(viewport_mat)
+
+    player := -1
+    for entity, i in appdata.entities {
+        if .Something in entity.flags && .PlayerControl in entity.flags {
+            player = i
+        }
+    }
+
+    if player != -1 {
+        recreate_condition := abs(f64(viewport.shadow_map_texture.texture.height) - viewport.screen_rect.height) > 2 || \
+            abs(f64(viewport.shadow_map_texture.texture.height) - viewport.screen_rect.height) > 2
+
+        if recreate_condition {
+            fmt.println(viewport.screen_rect.width)
+            rl.UnloadRenderTexture(viewport.shadow_map_texture)
+            viewport.shadow_map_texture = rl.LoadRenderTexture(auto_cast viewport.screen_rect.width, auto_cast viewport.screen_rect.height)
+        }
+
+        create_shadow_map({appdata.entities[player].transform.offset}, appdata.computed_simplified_collision_hitboxes, viewport^)
+    }
+}
+
+render_shadow_map :: proc(appdata: ^AppData, viewport: WorldViewport2D) {
+    rl.DrawTextureEx(viewport.shadow_map_texture.texture, {auto_cast viewport.screen_rect.x, auto_cast viewport.screen_rect.y}, 0, 1.0, rl.WHITE)
 }
 
 spawn_random_land :: proc(appdata: ^AppData) {

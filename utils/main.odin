@@ -4,6 +4,9 @@ import "core:mem"
 import la "core:math/linalg"
 import rn "base:runtime"
 import "core:math/rand"
+import "core:testing"
+import "core:math"
+import "core:sort"
 
 // colors 
 
@@ -15,6 +18,7 @@ RED :: Color { 255, 0, 0, 255 }
 BLUE :: Color { 0, 0, 255, 255 }
 GREEN :: Color { 0, 255, 125, 255 }
 ORANGE :: Color { 255, 125, 0, 255 }
+TRANSPARENT := Color { 0, 0, 0, 0 }
 
 concatenate :: proc(buf: []u8, strs: ..string) -> string {
     offset := 0
@@ -400,84 +404,37 @@ get_aabb_corners :: proc(aabb: Bounds($T)) -> [4][2]T {
     }
 }
 
-ray_intersect_bounds :: proc(rp: [2]$T, rd: [2]T, bounds: Bounds(T)) -> (intersected: bool, entrance_point: [2]T, exit_point: [2]T) {
+ray_intersect_bounds :: proc(rp: [2]$T, rd: [2]T, bounds: Bounds(T)) -> (intersection_count: u8, intersections: [4]la.Vector2f64) {
     corners := get_aabb_corners(bounds)
     prev := corners[len(corners)-1]
 
-    intersections: [2][2]T 
-    intersection_count: u8 = 0
-
     for i in 0..<len(corners) {
-        if ok, point := ray_intersect_line_segment(rp, rd, prev, corners[i]); ok {
+        if ok, point := ray_intersect_line_segment(rp, rd, prev, corners[i], one_way = true); ok {
             intersections[intersection_count] = point
             intersection_count += 1
         }
         prev = corners[i]
     }
 
-    if intersection_count == 0 {
-        return false, {}, {}
-    }
-
-    assert(intersection_count == 2)
-
-    if la.vector_length(intersections[0]-rp) < la.vector_length(intersections[1]-rp) {
-        return true, intersections[0], intersections[1]
-    } else {
-        return true, intersections[1], intersections[0]
-    }
+    return intersection_count, intersections
 }
 
-// based on ray line segment intersect
-line_segment_intersect_line_segment :: proc(r1: [2]$T, r2: [2]T, s1: [2]T, s2: [2]T) -> (bool, [2]T) {
-    // both vertical lines
-    if s2.x == s1.x && r1.x == r2.x {
-        return false, {0, 0}
-    }
+@(test) 
+ray_intersect_line_segment_test :: proc(t: ^testing.T) {
+    //res, point := ray_intersect_line_segment([2]f64{-2, 0}, [2]f64{1, 0}, [2]f64{1, 6}, [2]f64{1, 2})
+    //testing.expect(t, res)
+    //testing.expect_value(t, point, [2]f64{1, 0})
 
-    // r segment is vertical so point hit will be at x = r1.x or r2.x
-    if r1.x == r2.x {
-        x := r1.x
-
-        // it could be out of segment bounds
-        if 0 <= x && x <= abs(s1.x - s2.x) {
-            return false, {0, 0}
-        }
-
-        m := (s2.y - s1.y) / (s2.x - s1.x)
-        y := m * (x - s1.x) + s1.y
-        return true, {x, y}
-    }
-    
-    // s segment is vertical so point hit will be at x = r1.x or r2.x
-    if s1.x == s2.x {
-        x := s1.x
-
-        // it could be out of segment bounds
-        if 0 <= x && x <= abs(r1.x - r2.x) {
-            return false, {0, 0}
-        }
-
-        m := (r2.y - r1.y) / (r2.x - r1.x)
-        y := m * (x - r1.x) + r1.y
-        return true, {x, y}
-    }
-    
-    m1 := (r2.y - r1.y) / (r2.x - r1.x)
-    m2 := (s2.y - s1.y) / (s2.x - s1.x)
-
-    x := (r1.y + s1.y + m2 * s1.x - m1 * r1.x) / (m2 - m1)
-
-    if 0 <= x && x <= min(abs(r1.x - r2.x), abs(s1.x - s2.x)) {
-        return false, {0, 0}
-    }
-
-    y := m2 * (x - s1.x) + s1.y
-
-    return true, {x, y}
+    //// 3x + 1 = 7x - 4
+    //// -4x = -5
+    //// x = 5/4
+    //// y = 5/4 * 3 + 1 = 19/4
+    //res, point = ray_intersect_line_segment([2]f64{0, 1}, [2]f64{1, 3}, [2]f64{0, -4}, [2]f64{4, 24})
+    //testing.expect(t, res)
+    //testing.expect_value(t, point, [2]f64{5.0/4.0, 19.0/4.0})
 }
 
-ray_intersect_line_segment :: proc(rp: [2]$T, rd: [2]T, s1: [2]T, s2: [2]T) -> (bool, [2]T) {
+ray_intersect_line_segment :: proc(rp: [2]$T, rd: [2]T, s1: [2]T, s2: [2]T, one_way := false) -> (bool, [2]T) {
     // both vertical lines
     if s2.x == s1.x && rd.x == 0 {
         return false, {0, 0}
@@ -488,7 +445,7 @@ ray_intersect_line_segment :: proc(rp: [2]$T, rd: [2]T, s1: [2]T, s2: [2]T) -> (
         x := rp.x
 
         // it could be out of segment bounds
-        if 0 <= x && x <= abs(s1.x - s2.x) {
+        if min(s1.x, s2.x) > x || x > max(s1.x, s2.x) {
             return false, {0, 0}
         }
 
@@ -498,10 +455,15 @@ ray_intersect_line_segment :: proc(rp: [2]$T, rd: [2]T, s1: [2]T, s2: [2]T) -> (
     }
     
     // segment is vertical so point hit will be at x = s1.x
-    if s2.x - s1.x == 0 {
+    if s2.x == s1.x {
         x := s1.x
         m1 := rd.y / rd.x
         y := m1 * (x - rp.x) + rp.y
+
+        if min(s1.y, s2.y) > y || max(s1.y, s2.y) < y {
+            return false, {0, 0}
+        }
+
         return true, {x, y}
     }
     
@@ -509,22 +471,20 @@ ray_intersect_line_segment :: proc(rp: [2]$T, rd: [2]T, s1: [2]T, s2: [2]T) -> (
     // r(x) = m1 * (x - rp.x) + rp.y
     
     m2 := (s2.y - s1.y) / (s2.x - s1.x)
-    // the x value should be in range of possible x values for the segment
-    // s(x) = m2 * (x - s1.x) + s1.y { 0 <= x <= abs(s1.x - s2.x) }
+    // s(x) = m2 * (x - s1.x) + s1.y
 
-    // m2 * (x - s1.x) + s1.y == m1 * (x - rp.x) + rp.y
-    // m2 * x - m2 * s1.x + s1.y == m1 * x - m1 * rp.x + rp.y
-    // m2 * x - m1 * x == rp.y + s1.y + m2 * s1.x - m1 * rp.x 
-    // x * (m2 - m1) == rp.y + s1.y + m2 * s1.x - m1 * rp.x 
-    // x := (rp.y + s1.y + m2 * s1.x - m1 * rp.x) / (m2 - m1)
+    x := (m2*s1.x - m1*rp.x + rp.y - s1.y) / (m2 - m1)
     
-    x := (rp.y + s1.y + m2 * s1.x - m1 * rp.x) / (m2 - m1)
-
-    if 0 <= x && x <= abs(s1.x - s2.x) {
+    // the x value should be in range of possible x values for the segment
+    if min(s1.x, s2.x) > x || x > max(s1.x, s2.x) {
         return false, {0, 0}
     }
 
     y := m2 * (x - s1.x) + s1.y
+
+    //if one_way && (x - s1.x) < 0 {
+    //    return false, {0, 0}
+    //}
 
     return true, {x, y}
 }
