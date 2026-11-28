@@ -52,6 +52,27 @@ import "core:fmt"
 //    //}
 //}
 
+closest_intersection :: proc(rp: la.Vector2f64, rd: la.Vector2f64, world_hitboxes: []ut.Bounds(f64), worldspace_bounds: ut.Bounds(f64)) -> la.Vector2f64 {
+    closest := la.Vector2f64{-100000000, 100000000}
+
+    for i in 0..<len(world_hitboxes)+1 {
+        bound := worldspace_bounds
+        if i != len(world_hitboxes) {
+            bound = world_hitboxes[i]
+        }
+        if count, intersections := ut.ray_intersect_bounds(rp, rd, bound); count != 0 {
+            for intersection in intersections[0:count] {
+                scalar := (intersection-rp) / rd
+                if la.distance(rp, intersection) < la.distance(rp, closest) && scalar.x > 0 && scalar.y > 0 {
+                    closest = intersection
+                }
+            }
+        }
+    }
+
+    return closest
+}
+
 create_shadow_map :: proc(light_sources: []la.Vector2f64, world_hitboxes: []ut.Bounds(f64), viewport: WorldViewport2D) {
     mat := get_viewport_matrix_without_offset(viewport)
     inv_mat := la.inverse(mat)
@@ -63,57 +84,62 @@ create_shadow_map :: proc(light_sources: []la.Vector2f64, world_hitboxes: []ut.B
     }
     worldspace_bounds := ut.apply_matrix_to_bounds(inv_mat, bounds_without_offset)
 
+    angles := make([dynamic]f64)
+    
+    granularity := 2*math.PI/2048
+
+    for light_source in light_sources {
+        for bound in world_hitboxes {
+            for corner in ut.get_aabb_corners(bound) {
+                c := corner - light_source
+                append(&angles, math.atan2(c.y, c.x)+granularity/2)
+                append(&angles, math.atan2(c.y, c.x)-granularity/2)
+            }
+        }
+        for corner in ut.get_aabb_corners(worldspace_bounds) {
+            c := corner - light_source
+            append(&angles, math.atan2(c.y, c.x)+granularity/2)
+            append(&angles, math.atan2(c.y, c.x)-granularity/2)
+        }
+    }
+
+    sort.quick_sort(angles[:])
+    fmt.println(len(angles))
+
     // create a shadow map
 
     rl.BeginTextureMode(viewport.shadow_map_texture)
     rl.ClearBackground(rl.Color{0, 0, 0, 125})
-    //rl.BeginBlendMode(.CUSTOM_SEPARATE)
-    //rlgl.SetBlendFactorsSeparate(rlgl.BLEND_SRC_ALPHA, rlgl.ONE_MINUS_SRC_ALPHA, rlgl.ONE, rlgl.ZERO, rlgl.FUNC_ADD, rlgl.FUNC_ADD)
-
-    granularity := 2*math.PI/256
+    rl.BeginBlendMode(.CUSTOM)
+    rlgl.SetBlendFactors(rlgl.ONE, rlgl.ZERO, rlgl.FUNC_ADD);
 
     for light_source in light_sources {
-        angle: f64 = 0
         prev := la.Vector2f64{0, 0}
         first := true
+        first_closest := la.Vector2f64{0, 0}
 
-        for angle < 2*math.PI {
-            angle += granularity
-            rd := la.Vector2f64{math.cos(angle), math.sin(angle)}
-
-            closest := la.Vector2f64{-100000000, 100000000}
-
-            for i in 0..<len(world_hitboxes)+1 {
-                bound := worldspace_bounds
-                if i != len(world_hitboxes) {
-                    bound = world_hitboxes[i]
-                }
-                if count, intersections := ut.ray_intersect_bounds(light_source, rd, bound); count != 0 {
-                    for intersection in intersections[0:count] {
-                        scalar := (intersection-light_source) / rd
-                        if la.distance(light_source, intersection) < la.distance(light_source, closest) && scalar.x > 0 && scalar.y > 0 {
-                            closest = intersection
-                        }
-                    }
-                }
-            }
-
+        for angle in angles {
             if !first {
+                rd := la.Vector2f64{math.cos(angle), math.sin(angle)}
+
+                closest := closest_intersection(light_source, rd, world_hitboxes, worldspace_bounds)
+
                 cu := ut.apply_matrix_to_point(mat, closest)
                 ls := ut.apply_matrix_to_point(mat, light_source)
                 pr := ut.apply_matrix_to_point(mat, prev)
-                fmt.println(prev, cu, ls)
-                rl.DrawTriangle(auto_cast ls, auto_cast pr, auto_cast cu, rl.Color{255, 255, 255, 125})
-                //rl.DrawLineV(auto_cast ls, auto_cast cu, rl.Color{255, 255, 255, 125})
-                //rl.DrawLineV(auto_cast ls, auto_cast pr, rl.Color{255, 255, 255, 125})
-            }
+                rl.DrawTriangle(auto_cast ls, auto_cast pr, auto_cast cu, rl.BLANK)
 
-            prev = closest
-            first = false
+                prev = closest
+            } else {
+                angle := angles[len(angles)-1]
+                rd := la.Vector2f64{math.cos(angle), math.sin(angle)}
+                prev = closest_intersection(light_source, rd, world_hitboxes, worldspace_bounds)
+                first = false
+            }
         }
     }
 
-    //rl.EndBlendMode()
+    rl.EndBlendMode()
     rl.EndTextureMode()
 }
 
